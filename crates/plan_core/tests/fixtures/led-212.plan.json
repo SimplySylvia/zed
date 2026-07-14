@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "id": "LED-212",
+  "title": "Add pagination to the invoices table",
+  "status": "executing",
+  "rev": 5,
+  "thread": "acp-7f3a",
+  "executor": { "thread": "acp-7f3a", "taken_at": "2026-07-10T14:03:00Z" },
+  "tickets": [
+    {
+      "source": "jira",
+      "key": "LED-212",
+      "type": "Story",
+      "status": "In Progress",
+      "priority": "High",
+      "assignee": "sylvia.hart",
+      "url": "https://acme.atlassian.net/browse/LED-212",
+      "ac": [
+        "paged slices + total",
+        "footer range + prev/next",
+        "deep-linkable page",
+        "export unaffected"
+      ],
+      "fetched_at": "2026-07-10T13:55:00Z",
+      "drift": null
+    }
+  ],
+  "spec": {
+    "goal": "Paginate the invoices table so large accounts load quickly and pages are shareable.",
+    "scope": {
+      "in": [
+        "Server-side pagination of the invoices loader",
+        "Footer with a range summary and prev/next controls",
+        "Page reflected in the URL for deep links"
+      ],
+      "out": [
+        "Changing the CSV export endpoint",
+        "Column sorting behaviour"
+      ]
+    },
+    "acceptance": [
+      {
+        "id": "a1",
+        "when": "the invoices route loads with a page parameter",
+        "shall": "return only that page's slice plus the total count",
+        "ticket_ac": "LED-212#1",
+        "tasks": ["t1", "t2"],
+        "done": true,
+        "evidence": [
+          {
+            "type": "tests",
+            "ref": "app/routes/invoices/route.test.tsx::paginates",
+            "captured_at": "2026-07-11T09:20:00Z",
+            "stale": false
+          }
+        ],
+        "waived": null
+      },
+      {
+        "id": "a2",
+        "when": "the user clicks prev or next",
+        "shall": "update the footer range and the URL page parameter",
+        "ticket_ac": "LED-212#2",
+        "tasks": ["t2"],
+        "done": false,
+        "evidence": [],
+        "waived": null
+      }
+    ],
+    "open_questions": [
+      {
+        "id": "q1",
+        "text": "Offset or cursor pagination?",
+        "options": ["offset", "cursor"],
+        "assumption": "offset",
+        "assumed_blocks": ["t1", "a1"],
+        "answer": null
+      }
+    ]
+  },
+  "design": {
+    "contracts": [
+      {
+        "id": "k1",
+        "rows": [
+          { "in": "page (1-based), pageSize", "out": "items[], total, page, pageSize" }
+        ]
+      }
+    ],
+    "previews": [
+      { "id": "p1", "kind": "contract", "attached_to": "t1", "body": {} },
+      { "id": "p2", "kind": "ui-states", "attached_to": "t2", "body": {} }
+    ],
+    "decisions": [
+      {
+        "text": "offset over cursor",
+        "rationale": "the invoice list is small per account and offset keeps deep links trivial"
+      }
+    ],
+    "risks": [
+      "CSV export shares the invoices endpoint; it must stay unpaged"
+    ]
+  },
+  "tasks": [
+    {
+      "id": "t1",
+      "title": "Accept page params in the invoices loader",
+      "system": "backend",
+      "gate": false,
+      "ticket": "LED-212",
+      "depends_on": [],
+      "files": [
+        { "path": "app/routes/invoices/route.tsx", "op": "M" }
+      ],
+      "steps": [
+        { "id": "s1", "text": "Parse page and pageSize from the request URL", "assumes": null, "guard": null },
+        { "id": "s2", "text": "Return the page slice plus total from the loader", "assumes": "q1", "guard": null }
+      ],
+      "commit_message": "[LED-212]: accept page params in invoices loader",
+      "preview": "p1",
+      "acceptance": ["a1"],
+      "status": "done",
+      "manual": false,
+      "artifacts": { "sha": "3f81c2a", "diffstat": "+42 -6", "tests": null },
+      "timeline": [
+        { "at": "2026-07-11T09:18:00Z", "kind": "edit", "detail": "route.tsx +42 -6" }
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "Add a paginated footer with prev/next and URL sync",
+      "system": "frontend",
+      "gate": false,
+      "ticket": "LED-212",
+      "depends_on": ["t1"],
+      "files": [
+        { "path": "app/routes/invoices/route.tsx", "op": "M" },
+        { "path": "app/components/PaginationFooter.tsx", "op": "C" }
+      ],
+      "steps": [
+        { "id": "s1", "text": "Render the footer range summary", "assumes": null, "guard": null },
+        {
+          "id": "s2",
+          "text": "Run the local seed to preview large invoice lists",
+          "assumes": null,
+          "guard": {
+            "type": "approve",
+            "prompt": "about to run db:seed on the local database — approve to run",
+            "state": "pending",
+            "response": null,
+            "cleared_at": null,
+            "evidence_for": ["a2"]
+          }
+        },
+        { "id": "s3", "text": "Sync the page to the URL query parameter", "assumes": null, "guard": null }
+      ],
+      "commit_message": "[LED-212]: add paginated footer with prev/next and url sync",
+      "preview": "p2",
+      "acceptance": ["a1", "a2"],
+      "status": "in_progress",
+      "manual": false,
+      "artifacts": { "sha": null, "diffstat": null, "tests": null },
+      "timeline": [
+        { "at": "2026-07-11T10:02:00Z", "kind": "edit", "detail": "PaginationFooter.tsx created" }
+      ]
+    }
+  ],
+  "comments": [
+    {
+      "id": "c1",
+      "kind": "comment",
+      "author": "user",
+      "severity": "concern",
+      "anchor": {
+        "lens": "tasks",
+        "block": "t2.s2",
+        "range": [6, 52],
+        "quote": "run the local seed to preview large invoice lists",
+        "code_refs": [
+          { "path": "app/routes/api.invoices.export/route.ts", "line": 12, "quote": "shared query builder" }
+        ]
+      },
+      "outdated": false,
+      "suggestion": null,
+      "alternatives": null,
+      "thread": [
+        { "author": "user", "text": "Make sure the export endpoint isn't affected by the seed." },
+        {
+          "author": "agent",
+          "text": "Confirmed — the seed only touches the invoices table used by the paged loader.",
+          "action": "answered",
+          "rev": 5,
+          "cites": [ { "path": "app/routes/api.invoices.export/route.ts", "line": 12 } ],
+          "pushback": null
+        }
+      ],
+      "state": "addressed",
+      "caused_changes": ["t2.s2"]
+    }
+  ],
+  "pending_revision": {
+    "rev": 6,
+    "hunks": [
+      {
+        "id": "h1",
+        "target": "t2.s3",
+        "old": "Sync the page to the URL query parameter",
+        "new": "Sync the page to the URL query parameter and restore it on load",
+        "from": "c1",
+        "state": "pending"
+      }
+    ]
+  },
+  "git": {
+    "branch": "led-212-invoices-pagination",
+    "base": "develop",
+    "worktree": null,
+    "ahead": 3,
+    "behind": 0,
+    "dirty": false,
+    "commits": [
+      { "task": "t1", "sha": "3f81c2a", "diffstat": "+42 -6" }
+    ],
+    "pr": null
+  },
+  "history": [
+    { "rev": 5, "by": "agent", "kind": "revision", "summary": "Addressed export-safety concern; clarified seed scope." },
+    { "at": "2026-07-11T08:00:00Z", "kind": "session_rotated" }
+  ]
+}
