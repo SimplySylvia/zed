@@ -533,9 +533,12 @@ file (atomic temp+rename) → Zed's worktree watcher fires → `plan_core` reloa
 `plan_ui` re-renders. Your edits go the other way: UI writes, server reads fresh from
 disk on every tool call (`plan_get` is never cached). This buys you:
 
-- **Language freedom** — the MCP server is TypeScript, your home turf, with the mature
-  `@modelcontextprotocol/sdk`. All the gnarly protocol/tool logic lives where you're
-  fastest.
+- **Language freedom** — the MCP server is a separate process, so it can be any language.
+  *(Revised 2026-07-14 for this fork: implemented in **Rust** via the `rmcp` crate, so it
+  reuses `plan_core` directly — one source of truth for schema/store/lint, no
+  double-implementation and no drift. The original plan was TypeScript +
+  `@modelcontextprotocol/sdk`; the switch was validated by a connectivity spike. See
+  `docs/milestones/M2-plan.md`.)*
 - **Crash isolation** — server dies, file's intact, Zed keeps rendering (F11.1c free).
 - **Agent-agnostic** — anything that speaks MCP gets the same contract.
 - **Testability** — plan_core and the server test against fixture files, no Zed needed.
