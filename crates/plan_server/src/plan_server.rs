@@ -57,6 +57,49 @@ struct PlanCreateArgs {
     thread: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SetStatusArgs {
+    id: String,
+    /// New lifecycle status (intake|drafting|in_review|…|done|abandoned).
+    status: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct AddTaskArgs {
+    id: String,
+    /// New task id (unique within the plan).
+    task_id: String,
+    title: String,
+    /// Optional system tag (backend|frontend|integration|testing).
+    system: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct TaskUpdateArgs {
+    id: String,
+    task_id: String,
+    /// New task status (pending|in_progress|done|failed|skipped|interrupted).
+    status: Option<String>,
+    /// Optional timeline note to append.
+    detail: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct AnswerQuestionArgs {
+    id: String,
+    question_id: String,
+    answer: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct UpdateSectionArgs {
+    id: String,
+    /// Section path: "spec.goal" | "spec.scope.in" | "spec.scope.out" | "design.risks".
+    section: String,
+    /// New value (string for spec.goal; array of strings for the others).
+    value: serde_json::Value,
+}
+
 #[derive(Clone)]
 struct PlanServer {
     // Read by the `#[tool_handler]`-generated routing code.
@@ -92,6 +135,72 @@ impl PlanServer {
         Parameters(args): Parameters<PlanCreateArgs>,
     ) -> Result<String, ErrorData> {
         let plan = tools::create(&plans_dir(), &args.id, &args.title, &args.goal, &args.thread)
+            .map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Set the plan's lifecycle status.
+    #[tool(description = "Set the plan's lifecycle status")]
+    async fn plan_set_status(
+        &self,
+        Parameters(args): Parameters<SetStatusArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::set_status(&plans_dir(), &args.id, &args.status).map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Append a new pending task to the plan.
+    #[tool(description = "Append a new pending task to the plan")]
+    async fn plan_add_task(
+        &self,
+        Parameters(args): Parameters<AddTaskArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::add_task(
+            &plans_dir(),
+            &args.id,
+            &args.task_id,
+            &args.title,
+            args.system.as_deref(),
+        )
+        .map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Update a task's status and/or append a timeline note.
+    #[tool(description = "Update a task's status and/or append a timeline note")]
+    async fn task_update(
+        &self,
+        Parameters(args): Parameters<TaskUpdateArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::task_update(
+            &plans_dir(),
+            &args.id,
+            &args.task_id,
+            args.status.as_deref(),
+            args.detail.as_deref(),
+        )
+        .map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Record an answer to an open question.
+    #[tool(description = "Record an answer to an open question")]
+    async fn plan_answer_question(
+        &self,
+        Parameters(args): Parameters<AnswerQuestionArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::answer_question(&plans_dir(), &args.id, &args.question_id, &args.answer)
+            .map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Update a named spec/design section.
+    #[tool(description = "Update a named spec/design section")]
+    async fn plan_update_section(
+        &self,
+        Parameters(args): Parameters<UpdateSectionArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::update_section(&plans_dir(), &args.id, &args.section, args.value)
             .map_err(to_error)?;
         serde_json::to_string_pretty(&plan).map_err(to_error)
     }

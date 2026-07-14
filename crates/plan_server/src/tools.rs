@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-use plan_core::{Plan, store};
+use plan_core::{HistoryEntry, Plan, Status, Task, TaskStatus, TimelineEntry, store};
 
 /// Create a new draft plan and persist it atomically. The plan starts in
 /// `drafting` at rev 1 with an empty spec/design/tasks; the agent fills it in
@@ -28,4 +28,165 @@ pub fn create(plans_dir: &Path, id: &str, title: &str, goal: &str, thread: &str)
 /// every call so UI/user edits are always reflected).
 pub fn get(plans_dir: &Path, id: &str) -> Result<Plan> {
     store::load(plans_dir, id)
+}
+
+/// Set the plan's lifecycle status.
+pub fn set_status(plans_dir: &Path, id: &str, status: &str) -> Result<Plan> {
+    let parsed = parse_status(status)?;
+    let summary = format!("status → {status}");
+    mutate(plans_dir, id, "status", summary, move |plan| {
+        plan.status = parsed;
+        Ok(())
+    })
+}
+
+/// Append a new task in `pending`.
+pub fn add_task(
+    plans_dir: &Path,
+    id: &str,
+    task_id: &str,
+    title: &str,
+    system: Option<&str>,
+) -> Result<Plan> {
+    let task_value = serde_json::json!({
+        "id": task_id, "title": title, "system": system, "status": "pending",
+    });
+    let task_id = task_id.to_string();
+    let summary = format!("added task {task_id}");
+    mutate(plans_dir, id, "add_task", summary, move |plan| {
+        if plan.tasks.iter().any(|task| task.id == task_id) {
+            anyhow::bail!("task {task_id} already exists");
+        }
+        plan.tasks.push(serde_json::from_value::<Task>(task_value)?);
+        Ok(())
+    })
+}
+
+/// Update a task's status and/or append a timeline entry.
+pub fn task_update(
+    plans_dir: &Path,
+    id: &str,
+    task_id: &str,
+    status: Option<&str>,
+    detail: Option<&str>,
+) -> Result<Plan> {
+    let new_status = status.map(parse_task_status).transpose()?;
+    let detail = detail.map(String::from);
+    let task_id = task_id.to_string();
+    let summary = format!("task {task_id} updated");
+    mutate(plans_dir, id, "task_update", summary, move |plan| {
+        let task = plan
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .ok_or_else(|| anyhow::anyhow!("no task {task_id}"))?;
+        if let Some(status) = new_status {
+            task.status = status;
+        }
+        if let Some(detail) = detail {
+            task.timeline.push(TimelineEntry {
+                at: None,
+                kind: Some("edit".to_string()),
+                detail: Some(detail),
+                extra: Default::default(),
+            });
+        }
+        Ok(())
+    })
+}
+
+/// Record an answer to an open question.
+pub fn answer_question(
+    plans_dir: &Path,
+    id: &str,
+    question_id: &str,
+    answer: &str,
+) -> Result<Plan> {
+    let question_id = question_id.to_string();
+    let answer = answer.to_string();
+    let summary = format!("answered {question_id}");
+    mutate(plans_dir, id, "answer_question", summary, move |plan| {
+        let question = plan
+            .spec
+            .open_questions
+            .iter_mut()
+            .find(|question| question.id == question_id)
+            .ok_or_else(|| anyhow::anyhow!("no open question {question_id}"))?;
+        question.answer = Some(serde_json::Value::String(answer));
+        Ok(())
+    })
+}
+
+/// Update a named spec/design section. M2 supports a small set of paths; the
+/// rest of the drafting-edit surface arrives with the review loop (M5).
+pub fn update_section(
+    plans_dir: &Path,
+    id: &str,
+    section: &str,
+    value: serde_json::Value,
+) -> Result<Plan> {
+    let section = section.to_string();
+    let summary = format!("updated {section}");
+    mutate(plans_dir, id, "update_section", summary, move |plan| {
+        match section.as_str() {
+            "spec.goal" => {
+                plan.spec.goal = value
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("spec.goal must be a string"))?
+                    .to_string();
+            }
+            "spec.scope.in" => plan.spec.scope.r#in = as_str_vec(&value)?,
+            "spec.scope.out" => plan.spec.scope.out = as_str_vec(&value)?,
+            "design.risks" => plan.design.risks = as_str_vec(&value)?,
+            other => anyhow::bail!("unsupported section: {other}"),
+        }
+        Ok(())
+    })
+}
+
+/// Load a plan, apply `mutation`, bump `rev`, stamp `history[]` (the sync-receipt
+/// trail, PRD §1), and save atomically.
+fn mutate(
+    plans_dir: &Path,
+    id: &str,
+    kind: &str,
+    summary: String,
+    mutation: impl FnOnce(&mut Plan) -> Result<()>,
+) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    mutation(&mut plan)?;
+    plan.rev += 1;
+    plan.history.push(HistoryEntry {
+        rev: Some(plan.rev),
+        by: Some("agent".to_string()),
+        kind: Some(kind.to_string()),
+        summary: Some(summary),
+        at: None,
+        extra: Default::default(),
+    });
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
+fn parse_status(status: &str) -> Result<Status> {
+    serde_json::from_value(serde_json::Value::String(status.to_string()))
+        .map_err(|_| anyhow::anyhow!("unknown plan status: {status}"))
+}
+
+fn parse_task_status(status: &str) -> Result<TaskStatus> {
+    serde_json::from_value(serde_json::Value::String(status.to_string()))
+        .map_err(|_| anyhow::anyhow!("unknown task status: {status}"))
+}
+
+fn as_str_vec(value: &serde_json::Value) -> Result<Vec<String>> {
+    value
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("expected a JSON array of strings"))?
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(String::from)
+                .ok_or_else(|| anyhow::anyhow!("array must contain only strings"))
+        })
+        .collect()
 }
