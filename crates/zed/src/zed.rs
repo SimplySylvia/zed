@@ -804,6 +804,25 @@ fn initialize_panels(window: &mut Window, cx: &mut Context<Workspace>) -> Task<a
             add_panel_when_ready(git_panel, workspace_handle.clone(), cx.clone()),
             add_panel_when_ready(channels_panel, workspace_handle.clone(), cx.clone()),
             add_panel_when_ready(debug_panel, workspace_handle.clone(), cx.clone()),
+            {
+                // Plan (fork feature) — registered only behind the ZED_PLAN flag so
+                // an unflagged build is byte-for-byte upstream behaviour. See
+                // FORK_DIFF.md and docs/milestones/M0-plan.md. Owned clones are bound
+                // here so the `async move` doesn't borrow the outer handles (which are
+                // moved into `initialize_agent_panel` below).
+                let workspace_handle = workspace_handle.clone();
+                let cx = cx.clone();
+                async move {
+                    if plan_ui::plan_enabled() {
+                        add_panel_when_ready(
+                            plan_ui::PlanPanel::load(workspace_handle.clone(), cx.clone()),
+                            workspace_handle,
+                            cx,
+                        )
+                        .await;
+                    }
+                }
+            },
             initialize_agent_panel(workspace_handle, cx.clone()).map(|r| r.log_err()),
         );
 
