@@ -490,3 +490,31 @@ the agent. Zed reads its own `context_servers` and **forwards them to the ACP ag
   `observe_flag` via `FeatureFlagStore`) — awkward for a self-controlled personal fork. M0
   should gate the hello panel with a self-owned mechanism (env var or, later, the `"plan"`
   setting), not Zed's cloud feature flags. See M0 plan open questions.
+
+---
+
+# M2 pre-build spikes (executed 2026-07-14)
+
+### rmcp connectivity (Rust MCP server viability)
+
+A throwaway ~45-line `rmcp` v2.2.0 stdio server (features `server`/`macros`/`transport-io`)
+answered the full MCP handshake driven over stdin: `initialize` → capabilities, `tools/list`
+→ advertised the tool with an auto-derived `inputSchema`, `tools/call` →
+`{"content":[{"type":"text","text":"pong"}],"isError":false}`, clean exit on EOF. Confirms a
+Rust stdio MCP server that reuses `plan_core` is viable and low-boilerplate → **Option B**
+adopted for M2 (server in Rust, not TypeScript). Gotchas: `ServerInfo` is `#[non_exhaustive]`
+(build from `default()`); pulls `tokio` (fine — standalone binary, never linked into Zed);
+one cosmetic `tool_router` dead-code warning (`#[allow(dead_code)]`). Now covered by the
+committed `crates/plan_server/tests/handshake.rs`.
+
+### Claude Code hook enforcement (§7 risk — RETIRED)
+
+Configured a project `.claude/settings.json` and drove `claude -p` (v2.1.207, headless):
+- **PreToolUse deny** — a hook returning exit 2 on `Bash` blocked the call; Claude Code
+  reported it was "blocked by a PreToolUse hook" and the target file was never created.
+- **SessionStart inject** — a hook emitting `additionalContext` made the model report an
+  otherwise-unknown passphrase.
+
+Both mechanisms work, so F6.3 enforcement (block code edits without a plan, hold on guards,
+re-inject the plan) is buildable as designed. The §7 "hooks can't deny/inject" risk is
+refuted.
