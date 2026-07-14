@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan 1.0 — end-to-end demo: table pagination</title>
+<style>
+  :root{
+    --background:#3b414d; --panel:#2f343e; --editor:#282c33;
+    --el-hover:#363c46; --el-active:#454a56;
+    --border:#464b57; --border-var:#363c46;
+    --text:#dce0e5; --muted:#a9afbc; --placeholder:#878a98; --accent:#74ade8;
+    --selection:rgba(116,173,232,.24);
+    --created:#a1c181; --created-bg:rgba(161,193,129,.1); --created-border:#38482f;
+    --modified:#dec184; --modified-bg:rgba(222,193,132,.1); --modified-border:#5d4c2f;
+    --deleted:#d07277; --error-bg:rgba(208,114,119,.1); --error-border:#4c2b2c;
+    --info:#74ade8; --info-bg:rgba(116,173,232,.1); --info-border:#293b5b;
+    --success:#a1c181; --scroll:rgba(200,204,212,.3);
+    --kw:#b477cf; --fn:#73ade9; --ty:#6eb4bf; --str:#a1c181; --prop:#d07277;
+    --cm:#5d636f; --num:#bf956a; --const:#dfc184; --punc:#b2b9c6; --var:#acb2be;
+    --ln:#4e5a5f; --ed-fg:#acb2be; --active-line:rgba(47,52,62,.75); --vc-added:#27a657;
+    --sans:'IBM Plex Sans',-apple-system,'Segoe UI',system-ui,sans-serif;
+    --mono:'Lilex','IBM Plex Mono','SF Mono',ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#181b20;color:var(--text);font-family:var(--sans);font-size:13px;
+       -webkit-font-smoothing:antialiased;padding:22px 14px 60px}
+  button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+  button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
+
+  .harness{max-width:1400px;margin:0 auto}
+  .harness h1{font-size:15px;font-weight:600;margin-bottom:8px}
+  .stepper{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+  .stepper .nav{padding:5px 10px;border-radius:6px;border:1px solid var(--border-var);background:var(--panel);color:var(--muted);font-size:12px}
+  .stepper .nav:hover{color:var(--text)}
+  .stp{padding:4px 9px;border-radius:6px;border:1px solid var(--border-var);background:var(--panel);
+      color:var(--muted);font-size:11px;display:flex;gap:5px;align-items:center}
+  .stp .n{font-family:var(--mono);font-size:9.5px;color:var(--placeholder)}
+  .stp[aria-pressed="true"]{background:var(--el-active);color:var(--text);border-color:var(--accent)}
+  .stp[aria-pressed="true"] .n{color:var(--accent)}
+  .statecap{color:var(--muted);font-size:12.5px;min-height:62px;margin-bottom:12px;max-width:1140px;line-height:1.55}
+  .statecap b{color:var(--text)} .statecap .act{color:var(--accent);font-weight:600}
+  .statecap .kbd{font-family:var(--mono);font-size:10.5px;background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:0 5px}
+
+  .win{border:1px solid #000;border-radius:10px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.55);
+       background:var(--background);display:flex;flex-direction:column;height:900px}
+  .titlebar{display:flex;align-items:center;gap:8px;background:var(--background);padding:6px 10px;flex-shrink:0}
+  .lights{display:flex;gap:7px;margin-right:4px}
+  .lights i{width:12px;height:12px;border-radius:50%;display:block}
+  .lights i:nth-child(1){background:#ec6a5e}.lights i:nth-child(2){background:#f4bf4f}.lights i:nth-child(3){background:#61c454}
+  .tb-btn{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);padding:2px 8px;border-radius:5px}
+  .tb-btn.br{color:var(--muted);font-size:12px}
+  .tb-sep{color:var(--placeholder)}
+  .tb-right{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .tb-ic{padding:3px 7px;border-radius:5px;color:var(--muted)}
+  .avatar{width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,#b477cf,#74ade8);
+      display:grid;place-items:center;font-size:9px;font-weight:700;color:#1c1e24}
+
+  .frame{display:flex;flex:1;min-height:0;background:var(--background)}
+  .threadsbar{width:196px;background:var(--panel);border-right:1px solid var(--border-var);display:flex;flex-direction:column;flex-shrink:0}
+  .ts-head{padding:9px 12px 5px;font-size:11px;font-weight:600;color:var(--muted)}
+  .ts-group{padding:6px 12px 3px;font-size:11px;font-weight:600;color:var(--placeholder)}
+  .ts-item{display:flex;flex-direction:column;gap:2px;padding:6px 12px 6px 14px;border-left:2px solid transparent}
+  .ts-item.active{background:var(--el-active);border-left-color:var(--accent)}
+  .ts-item .r1{display:flex;gap:7px;align-items:center;font-size:12.5px;min-width:0}
+  .ts-item .r1 .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ts-item .r2{display:flex;gap:5px;font-size:10px;color:var(--placeholder);padding-left:15px;flex-wrap:wrap}
+  .brb{font-family:var(--mono);font-size:9px;color:var(--placeholder)}
+  .sdot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .sdot.run{background:var(--accent);animation:pl 1.4s ease-in-out infinite}
+  .sdot.warn{background:var(--modified);animation:pl 1.1s ease-in-out infinite}
+  .sdot.err{background:var(--deleted);animation:pl 1.1s ease-in-out infinite}
+  .sdot.done{background:var(--success)} .sdot.idle{background:var(--placeholder)}
+  @keyframes pl{50%{opacity:.3}}
+  .ts-bottombar{margin-top:auto;border-top:1px solid var(--border-var);display:flex;gap:2px;padding:4px 8px}
+
+  .agentdock{width:320px;background:var(--panel);border-right:1px solid var(--border-var);display:flex;flex-direction:column;flex-shrink:0}
+  .ap-toolbar{display:flex;align-items:center;gap:4px;height:34px;padding:0 8px 0 12px;border-bottom:1px solid var(--border-var);flex-shrink:0}
+  .ap-toolbar .tt{font-size:12.5px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ap-toolbar .agname{font-size:10.5px;color:var(--placeholder);border:1px solid var(--border-var);border-radius:99px;padding:1px 8px}
+  .ap-ic{padding:3px 7px;border-radius:5px;color:var(--muted)}
+  .thread{flex:1;overflow-y:auto;padding:12px;display:grid;gap:12px;align-content:start;
+      scrollbar-width:thin;scrollbar-color:var(--scroll) transparent}
+  .m{font-size:12.5px;line-height:1.55}
+  .m.user .bub{background:var(--editor);border:1px solid var(--border-var);border-radius:8px;padding:8px 11px;color:var(--text)}
+  .m.agent{color:var(--muted)} .m.agent b{color:var(--text);font-weight:600}
+  .toolrow{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted);padding:3px 0;
+      border-left:2px solid var(--border-var);padding-left:10px;margin:2px 0}
+  .toolrow .tic{color:var(--ty);font-size:11px;width:14px;text-align:center}
+  .toolrow.ok .tic{color:var(--success)}
+  .toolrow .tname{font-family:var(--mono);font-size:11px}
+  .fdot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pl 1.1s ease-in-out infinite}
+  .qcard{border:1px solid var(--border-var);border-radius:8px;background:var(--editor);padding:9px 11px;margin-top:6px}
+  .qcard .qh{font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--ty);margin-bottom:6px}
+  .qcard .qt{font-size:12px;color:var(--text);line-height:1.5;margin-bottom:7px}
+  .optchips{display:flex;gap:6px;flex-wrap:wrap}
+  .optchips button{font-size:11px;border:1px solid var(--border);border-radius:99px;padding:2px 10px;color:var(--text)}
+  .optchips button.picked{border-color:var(--accent);color:var(--accent);background:var(--info-bg)}
+  .qprog{display:flex;gap:8px;align-items:center;font-size:10px;font-weight:700;letter-spacing:.6px;
+      text-transform:uppercase;color:var(--placeholder);margin-top:8px}
+  .qprog .qd{width:7px;height:7px;border-radius:50%;background:var(--el-active)}
+  .qprog .qd.cur{background:var(--accent)} .qprog .qd.donep{background:var(--success)}
+  .qcard.queued{opacity:.55;border-style:dashed}
+  .qcard.queued .qh{color:var(--placeholder)}
+  .qcard.donez{padding:7px 11px}
+  .qcard.donez .qh{margin-bottom:2px}
+  .ctxbox{margin-top:8px;border-top:1px solid var(--border-var);padding-top:8px}
+  .ctxbox .cl2{font-size:9.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--placeholder);margin-bottom:5px}
+  .ctxbox .cin{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:6px 9px;
+      font-size:11.5px;color:var(--text);line-height:1.45;min-height:30px}
+  .ctxbox .cin .caret{display:inline-block;width:1px;height:12px;background:var(--accent);animation:pl 1s step-end infinite;vertical-align:-2px}
+  .ctxbox .cbr{display:flex;gap:7px;margin-top:7px;align-items:center}
+  .ctxbox .cbr .hint{font-size:9.5px;color:var(--placeholder);margin-left:auto}
+  .guardb{display:inline-flex;gap:4px;align-items:center;font-size:9px;font-weight:700;border-radius:99px;padding:1px 7px;border:1px solid;vertical-align:1px}
+  .guardb.appr{color:var(--modified);border-color:var(--modified-border);background:var(--modified-bg)}
+  .guardb.inp{color:var(--ty);border-color:#2c4a52;background:rgba(110,180,191,.09)}
+  .guardb.act{animation:pl 1.1s ease-in-out infinite;color:var(--modified);border-color:var(--modified-border);background:var(--modified-bg)}
+  .guardrcpt{display:inline-flex;gap:4px;align-items:center;font-size:9px;color:var(--success);font-family:var(--mono)}
+  .stepck{color:var(--success);font-size:10px;width:16px;text-align:center;flex-shrink:0;margin-top:1px}
+  .inpanel{border:1px solid var(--modified-border);border-radius:8px;background:var(--panel);padding:9px 11px;margin-top:7px}
+  .inpanel .il{font-size:9.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--placeholder);margin-bottom:5px}
+  .permprompt{border:1px solid var(--info-border);border-radius:8px;background:var(--info-bg);padding:10px 12px;margin-top:6px}
+  .permprompt .pt{font-size:12.5px;font-weight:600;color:var(--text);margin-bottom:3px}
+  .permprompt .pd{font-size:11.5px;color:var(--muted);margin-bottom:9px}
+  .permprompt .pbtns{display:grid;gap:5px}
+  .permprompt .pbtns button{text-align:left;font-size:12px;border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);background:var(--panel)}
+  .permprompt .pbtns button b{color:var(--accent)}
+  .composer{padding:10px;flex-shrink:0}
+  .composer .box{background:var(--editor);border:1px solid var(--border-var);border-radius:8px;padding:9px 11px}
+  .composer .ph{color:var(--placeholder);font-size:12.5px;margin-bottom:10px}
+  .composer .crow{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--muted)}
+  .selpill{padding:2px 6px;border-radius:5px}
+  .tokens{color:var(--placeholder);font-family:var(--mono);font-size:10px;margin-left:auto}
+
+  .center{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--editor)}
+  .tabbar{display:flex;align-items:stretch;background:var(--panel);height:34px;flex-shrink:0;border-bottom:1px solid var(--border-var)}
+  .navarrows{display:flex;align-items:center;padding:0 4px}
+  .navarrows span{padding:3px 7px;color:var(--placeholder);font-size:13px}
+  .tab{display:flex;align-items:center;gap:7px;padding:0 12px;font-size:12.5px;color:var(--muted);border-right:1px solid var(--border-var);cursor:pointer}
+  .tab:first-of-type{border-left:1px solid var(--border-var)}
+  .tab.active{background:var(--editor);color:var(--text);border-bottom:1px solid var(--editor);margin-bottom:-1px}
+  .tab .fic{font-size:10px;font-weight:700}
+  .tab .pdot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+  .tabbar-right{margin-left:auto;display:flex;align-items:center;padding:0 8px}
+  .tabbar-right span{padding:3px 7px;color:var(--placeholder)}
+  .centerview{display:none;flex:1;min-height:0;flex-direction:column}
+  .centerview.on{display:flex}
+
+  .editorbuf{flex:1;overflow:auto;font-family:var(--mono);font-size:13px;line-height:1.7;padding:6px 0;color:var(--ed-fg)}
+  .ln{display:flex;white-space:pre}
+  .ln .g{width:52px;flex-shrink:0;text-align:right;padding-right:16px;color:var(--ln);user-select:none;font-size:12px}
+  .ln .c{flex:1;padding-right:20px}
+  .tok-kw{color:var(--kw)} .tok-str{color:var(--str)} .tok-fn{color:var(--fn)} .tok-ty{color:var(--ty)}
+  .tok-cm{color:var(--cm)} .tok-prop{color:var(--prop)} .tok-punc{color:var(--punc)} .tok-var{color:var(--var)} .tok-const{color:var(--const)}
+
+  .plantoolbar{display:flex;align-items:center;gap:8px;padding:6px 16px;background:var(--editor);
+      border-bottom:1px solid var(--border-var);flex-shrink:0;flex-wrap:wrap}
+  .statuspill{font-size:10.5px;font-weight:600;letter-spacing:.4px;padding:2px 9px;border-radius:99px;border:1px solid}
+  .p-muted{color:var(--muted);border-color:var(--border)}
+  .p-warn{color:var(--modified);border-color:var(--modified-border);background:var(--modified-bg)}
+  .p-ok{color:var(--success);border-color:var(--created-border);background:var(--created-bg)}
+  .p-info{color:var(--info);border-color:var(--info-border);background:var(--info-bg)}
+  .p-err{color:var(--deleted);border-color:var(--error-border);background:var(--error-bg)}
+  .pulse2{animation:pl 1.1s ease-in-out infinite}
+  .rev{color:var(--placeholder);font-size:11px;font-family:var(--mono)}
+  .lens{display:inline-flex;background:var(--panel);border:1px solid var(--border-var);border-radius:7px;padding:2px;margin-left:4px}
+  .lens button{padding:3px 12px;border-radius:5px;font-size:11.5px;color:var(--muted);font-weight:500}
+  .lens button[aria-pressed="true"]{background:var(--el-active);color:var(--text)}
+  .spacer{flex:1}
+  .zbtn{padding:3px 11px;border-radius:5px;font-size:11.5px;font-weight:500;border:1px solid var(--border);color:var(--text)}
+  .zbtn:hover{background:var(--el-hover)}
+  .zbtn.primary{background:var(--accent);border-color:var(--accent);color:#22262d}
+  .zbtn.ok{color:var(--success);border-color:var(--created-border)}
+  .zbtn.danger{color:var(--deleted);border-color:var(--error-border)}
+  .zbtn:disabled{opacity:.4;cursor:default}
+  .blockerchip{display:inline-flex;gap:5px;align-items:center;font-size:10px;font-weight:700;color:var(--deleted);
+      border:1px solid var(--error-border);background:var(--error-bg);border-radius:99px;padding:2px 8px}
+  .streamtag{display:inline-flex;gap:6px;align-items:center;font-size:10.5px;color:var(--accent);font-weight:600}
+  .planfull{flex:1;overflow-y:auto;padding:16px 24px 60px;scrollbar-width:thin;scrollbar-color:var(--scroll) transparent}
+  h1.ptitle{font-size:17px;font-weight:600;margin:4px 0 10px;line-height:1.3}
+  code.inline{font-family:var(--mono);font-size:11px;background:var(--panel);border:1px solid var(--border-var);border-radius:4px;padding:0 5px;color:var(--const)}
+  .sechead{display:flex;align-items:center;gap:8px;font-size:10px;font-weight:600;letter-spacing:.9px;
+      text-transform:uppercase;color:var(--placeholder);margin:16px 0 9px}
+  .sechead .line{flex:1;height:1px;background:var(--border-var)}
+  .banner{display:flex;gap:10px;align-items:flex-start;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px;line-height:1.5}
+  .banner.warn{border:1px solid var(--modified-border);background:var(--modified-bg);color:var(--modified)}
+  .banner.err{border:1px solid var(--error-border);background:var(--error-bg);color:var(--deleted)}
+  .banner.ok{border:1px solid var(--created-border);background:var(--created-bg);color:var(--success)}
+  .banner b{font-weight:700}
+
+  /* ticket card */
+  .tkcard{border:1px solid var(--border-var);border-radius:8px;background:var(--panel);padding:10px 13px;
+      display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  .tkcard.drift{border-color:var(--modified-border)}
+  .tkcard .tkey{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:600}
+  .tkcard .tmeta{font-size:11px;color:var(--muted)}
+  .tkstat{font-size:10px;font-weight:600;border-radius:99px;padding:1px 8px;border:1px solid var(--border);color:var(--muted)}
+  .tkstat.prog{color:var(--accent);border-color:var(--info-border);background:var(--info-bg)}
+  .tkstat.done2{color:var(--success);border-color:var(--created-border);background:var(--created-bg)}
+  .covmeter{display:flex;gap:4px;align-items:center;margin-left:auto}
+  .covmeter .seg2{width:22px;height:6px;border-radius:3px;background:var(--editor);border:1px solid var(--border-var)}
+  .covmeter .seg2.on{background:var(--success);border-color:var(--success)}
+  .covmeter .seg2.warn2{background:var(--modified);border-color:var(--modified)}
+  .covmeter .cl{font-size:10px;color:var(--muted);margin-left:4px}
+  .tkcard .sync{font-size:9.5px;color:var(--placeholder);font-family:var(--mono)}
+  .driftbox{border:1px solid var(--modified-border);border-radius:8px;background:var(--panel);overflow:hidden;margin-bottom:12px}
+  .driftbox .dh3{display:flex;gap:8px;align-items:center;padding:7px 12px;background:var(--modified-bg);color:var(--modified);
+      font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
+  .driftbox .db3{padding:9px 12px;display:grid;gap:5px;font-size:12px;color:var(--muted)}
+  .driftbox .dl2{font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:4px}
+  .driftbox .dl2.old{background:var(--error-bg);color:var(--deleted);text-decoration:line-through}
+  .driftbox .dl2.new{background:var(--created-bg);color:var(--success)}
+  .driftbox .dbtns2{display:flex;gap:7px;padding:0 12px 10px}
+
+  /* branch strip */
+  .gitstrip{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 14px;padding:6px 11px;
+      background:var(--panel);border:1px solid var(--border-var);border-radius:8px;font-size:11.5px}
+  .gs-chip{display:inline-flex;gap:6px;align-items:center;font-family:var(--mono);font-size:10.5px;
+      padding:2px 8px;border-radius:6px;border:1px solid var(--border-var);background:var(--editor)}
+  .gs-chip .base{color:var(--placeholder)}
+  .gs-ab{font-family:var(--mono);font-size:10.5px;display:inline-flex;gap:7px}
+  .gs-ab .up{color:var(--success)} .gs-ab .down{color:var(--placeholder)}
+  .gs-dirty{display:inline-flex;gap:5px;align-items:center;font-size:10.5px;color:var(--muted)}
+  .gs-dirty i{width:7px;height:7px;border-radius:50%;background:var(--success)}
+  .gs-pr{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--placeholder)}
+  .gs-pr.live{color:var(--kw)}
+
+  /* lint / rehearsal / staged / amend / gate / pr / distill cards */
+  .card{border:1px solid var(--border-var);border-radius:8px;background:var(--panel);overflow:hidden;margin-bottom:12px}
+  .card .chd{display:flex;gap:8px;align-items:center;padding:7px 12px;font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
+  .chd.warnh{background:var(--modified-bg);color:var(--modified)}
+  .chd.okh{background:var(--created-bg);color:var(--success)}
+  .chd.infoh{background:var(--info-bg);color:var(--accent)}
+  .chd.errh{background:var(--error-bg);color:var(--deleted)}
+  .chd.kwh{background:rgba(180,119,207,.1);color:var(--kw)}
+  .chd .src{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--placeholder);font-weight:500;text-transform:none;letter-spacing:0}
+  .crow2{display:grid;gap:4px;padding:8px 12px;border-top:1px solid var(--border-var)}
+  .crow2 .r1{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text);font-weight:500;flex-wrap:wrap}
+  .crow2 .rule{font-family:var(--mono);font-size:9.5px;color:var(--placeholder);margin-left:auto}
+  .crow2 .r2{font-size:11.5px;color:var(--muted);padding-left:20px;line-height:1.5}
+  .fixed{display:inline-flex;gap:5px;font-size:10px;color:var(--success);border:1px solid var(--created-border);
+      background:var(--created-bg);border-radius:99px;padding:1px 8px;font-weight:600}
+  .lsev{font-size:10px;font-weight:800;width:12px;text-align:center}
+  .lsev.b{color:var(--deleted)} .lsev.w{color:var(--modified)}
+  .dline{font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:4px}
+  .dline.old{background:var(--error-bg);color:var(--deleted);text-decoration:line-through}
+  .dline.new{background:var(--created-bg);color:var(--success)}
+  .hstate{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .happlied{font-size:10px;font-weight:700;color:var(--success)}
+  .cbtns2{display:flex;gap:7px;padding:0 12px 10px}
+  .evrow{display:flex;gap:8px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .evrow .ei{color:var(--success);width:12px}
+  .evrow a{color:var(--accent);text-decoration:none}
+  .st3{margin-left:auto;font-size:10px;font-weight:700}
+  .st3.ok{color:var(--success)} .st3.warn{color:var(--modified)}
+
+  /* comments / suggestion / alternatives */
+  .cthread{border:1px solid var(--border);border-radius:8px;background:var(--editor);padding:9px 11px;margin:6px 0 2px 25px;max-width:600px}
+  .cthread .chead{display:flex;gap:7px;align-items:center;margin-bottom:7px}
+  .cstate{font-size:9.5px;font-weight:700;letter-spacing:.4px;border-radius:99px;padding:1px 8px;text-transform:uppercase}
+  .cstate.open{color:var(--modified);border:1px solid var(--modified-border);background:var(--modified-bg)}
+  .cstate.push{color:var(--deleted);border:1px solid var(--error-border);background:var(--error-bg)}
+  .cstate.res{color:var(--success);border:1px solid var(--created-border);background:var(--created-bg)}
+  .anch2{font-size:10px;color:var(--placeholder);font-family:var(--mono);margin-left:auto}
+  .cmsg{margin-bottom:7px}
+  .cmsg .who{display:flex;gap:6px;align-items:center;font-size:10px;font-weight:700;margin-bottom:2px}
+  .cmsg .who .av{width:14px;height:14px;border-radius:50%;display:grid;place-items:center;font-size:8px;color:#22262d;font-weight:800}
+  .av.u{background:var(--modified)} .av.a{background:var(--kw)}
+  .cmsg p{color:var(--muted);line-height:1.5;font-size:11.5px}
+  .codequote{border-left:2px solid var(--accent);background:var(--panel);border-radius:0 5px 5px 0;
+      font-family:var(--mono);font-size:10px;color:var(--muted);padding:5px 9px;margin:5px 0}
+  .coderef{display:inline-flex;gap:4px;align-items:center;font-family:var(--mono);font-size:9.5px;color:var(--accent);
+      border:1px solid var(--info-border);background:var(--info-bg);border-radius:5px;padding:1px 6px;cursor:pointer}
+  .pushrow{display:flex;gap:7px;margin-top:6px}
+  .pushrow .zbtn{font-size:10.5px;padding:2px 9px}
+  .cactions{display:flex;gap:10px;font-size:10.5px}
+  .cactions button{color:var(--accent);font-weight:600} .cactions button.res{color:var(--success)}
+  .sugg{border:1px solid var(--border);border-radius:8px;background:var(--editor);margin:6px 0 2px 0;overflow:hidden;max-width:600px}
+  .sugg .sh{display:flex;gap:8px;align-items:center;padding:6px 11px;font-size:10.5px;font-weight:700;background:var(--panel);border-bottom:1px solid var(--border-var)}
+  .sugg .srw{font-family:var(--mono);font-size:10.5px;padding:5px 11px}
+  .sugg .srw.old{background:var(--error-bg);color:var(--deleted);text-decoration:line-through}
+  .sugg .srw.new{background:var(--created-bg);color:var(--success)}
+  .altwrap{display:grid;gap:7px;margin:6px 0 2px 25px;max-width:600px}
+  .altcard{border:1px solid var(--border);border-radius:8px;background:var(--editor);padding:8px 11px;display:grid;gap:3px}
+  .altcard.pick{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .altcard .ah2{display:flex;gap:8px;align-items:center;font-size:12px;font-weight:600}
+  .altcard .ah2 .l{font-family:var(--mono);font-size:10px;color:var(--accent);border:1px solid var(--info-border);border-radius:4px;padding:0 5px;background:var(--info-bg)}
+  .altcard .tr{font-size:10px;color:var(--placeholder)}
+  .sel{background:var(--selection);border-radius:2px;box-shadow:0 0 0 1px rgba(116,173,232,.35)}
+
+  /* tasks + commit rail */
+  .railwrap{position:relative}
+  .railline{position:absolute;left:11px;top:10px;bottom:24px;width:2px;background:var(--border)}
+  .railrow{display:grid;grid-template-columns:24px 1fr;gap:10px;margin-bottom:10px;position:relative}
+  .node{width:24px;display:flex;justify-content:center;padding-top:12px}
+  .node i{width:13px;height:13px;border-radius:50%;border:2px solid var(--border);background:var(--editor);z-index:2;position:relative}
+  .node.commit i{background:var(--success);border-color:var(--success)}
+  .node.amendn i{background:var(--kw);border-color:var(--kw);border-radius:3px;transform:rotate(45deg)}
+  .node.gate i{background:var(--editor);border-color:var(--modified)}
+  .node.failn i{background:var(--deleted);border-color:var(--deleted)}
+  .node.spinn i{border-color:var(--accent);animation:pl 1s ease-in-out infinite}
+  .amendcurve{position:absolute;left:12px;top:-8px;width:14px;height:26px;border-left:2px solid var(--kw);
+      border-bottom:2px solid var(--kw);border-bottom-left-radius:10px;transform:translateX(9px);opacity:.7;z-index:1}
+  .railfoot{display:flex;gap:10px;font-family:var(--mono);font-size:10.5px;color:var(--placeholder);margin-top:2px}
+  .railfoot .up2{color:var(--success)}
+  .norail .railrow{grid-template-columns:1fr;gap:0}
+  .norail .node,.norail .railline,.norail .railfoot,.norail .amendcurve{display:none}
+
+  .task{border:1px solid var(--border-var);border-radius:8px;background:var(--panel)}
+  .task.done .th .t{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--placeholder)}
+  .task.activeT{border-color:#47679e}
+  .task.failed{border-color:var(--error-border)}
+  .task.gateT{border-color:var(--modified-border)}
+  .th{display:flex;align-items:center;gap:9px;padding:9px 12px;flex-wrap:wrap}
+  .cb{width:15px;height:15px;border-radius:4px;border:1.5px solid var(--border);display:grid;place-items:center;flex-shrink:0;font-size:10px}
+  .cb.ok2{background:var(--success);border-color:var(--success);color:#22262d;font-weight:700}
+  .cb.fail{background:var(--deleted);border-color:var(--deleted);color:#22262d;font-weight:700}
+  .cb.gatecb{border-color:var(--modified);color:var(--modified)}
+  .num{font-family:var(--mono);font-size:10.5px;color:var(--placeholder);width:18px}
+  .th .t{font-size:12.5px;font-weight:600;flex:1;min-width:130px}
+  .sysbadge{font-size:9px;font-weight:600;border-radius:99px;padding:2px 7px;border:1px solid}
+  .s-be{color:var(--kw);border-color:#43335c;background:rgba(180,119,207,.09)}
+  .s-fe{color:var(--ty);border-color:#2c4a52;background:rgba(110,180,191,.09)}
+  .s-test{color:var(--success);border-color:var(--created-border);background:var(--created-bg)}
+  .gateb{color:var(--modified);border-color:var(--modified-border);background:var(--modified-bg)}
+  .shachip{display:inline-flex;gap:5px;align-items:center;font-family:var(--mono);font-size:9.5px;color:var(--accent);
+      border:1px solid var(--border-var);border-radius:99px;padding:2px 8px;background:var(--editor)}
+  .shachip .ds{color:var(--placeholder)} .shachip .ds .p{color:var(--vc-added)} .shachip .ds .m2{color:var(--deleted)}
+  .chip{display:inline-flex;gap:4px;align-items:center;font-family:var(--mono);font-size:9.5px;color:var(--muted);
+      border:1px solid var(--border-var);border-radius:99px;padding:2px 8px;background:var(--editor)}
+  .chip.tests{color:var(--success)} .chip.ev{color:var(--ty)} .chip.fail2{color:var(--deleted)}
+  .amendtag{font-size:9px;font-weight:700;color:var(--kw);border:1px solid #43335c;background:rgba(180,119,207,.08);border-radius:99px;padding:1px 7px}
+  .tkchip2{font-family:var(--mono);font-size:9px;color:var(--accent);border:1px solid var(--border-var);border-radius:4px;padding:0 5px}
+  .tb2{padding:0 12px 11px 40px;display:grid;gap:9px;font-size:12px;line-height:1.55;color:var(--muted)}
+  .tb2 b{color:var(--text)}
+  .spin{width:13px;height:13px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:rot .9s linear infinite;flex-shrink:0}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  .skl{height:9px;border-radius:4px;background:linear-gradient(90deg,var(--panel),#3a404b,var(--panel));background-size:200% 100%;animation:sh 1.4s linear infinite;margin:5px 0}
+  @keyframes sh{to{background-position:-200% 0}}
+  .floatbar{position:absolute;top:-36px;left:90px;display:flex;gap:2px;background:var(--el-active);
+      border:1px solid var(--border);border-radius:8px;padding:3px;box-shadow:0 8px 24px rgba(0,0,0,.45);z-index:20;white-space:nowrap}
+  .floatbar button{display:flex;gap:5px;align-items:center;font-size:10.5px;padding:3px 8px;border-radius:5px}
+  .floatbar .fi{color:var(--accent);font-size:10px}
+  .floatbar .sp{width:1px;background:var(--border);margin:2px 1px}
+  .step2{display:flex;gap:9px;position:relative;font-size:12px;line-height:1.55}
+  .step2 .sn{width:16px;height:16px;border-radius:50%;background:var(--editor);border:1px solid var(--border-var);
+      display:grid;place-items:center;font-size:9px;font-family:var(--mono);color:var(--muted);flex-shrink:0;margin-top:1px}
+
+  /* contract + ui preview */
+  .preview{border:1px dashed var(--border);border-radius:8px;background:var(--editor);padding:9px 11px}
+  .plabel{font-size:9px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:var(--ty);margin-bottom:7px}
+  .contract{display:grid;gap:4px}
+  .crw{display:grid;grid-template-columns:1.1fr 16px 1.3fr;gap:8px;font-family:var(--mono);font-size:10px;
+      padding:4px 8px;background:var(--panel);border:1px solid var(--border-var);border-radius:5px;align-items:center;position:relative}
+  .crw .in{color:var(--const)} .crw .arr{color:var(--placeholder);text-align:center}
+  .crw .out{color:var(--success)} .crw .out.warn3{color:var(--modified)}
+  .minitbl{background:var(--panel);border:1px solid var(--border-var);border-radius:7px;overflow:hidden;width:250px}
+  .minitbl .mth{display:grid;grid-template-columns:1.2fr 1.4fr 1fr;font-size:8.5px;font-weight:700;color:var(--placeholder);
+      text-transform:uppercase;letter-spacing:.4px;padding:4px 9px;border-bottom:1px solid var(--border-var);background:var(--editor)}
+  .minitbl .mtr{display:grid;grid-template-columns:1.2fr 1.4fr 1fr;font-family:var(--mono);font-size:9px;color:var(--muted);
+      padding:3.5px 9px;border-bottom:1px solid var(--border-var)}
+  .minitbl .mtf{display:flex;gap:8px;align-items:center;padding:5px 9px;font-size:9.5px;color:var(--muted);background:var(--editor)}
+  .minitbl .mtf .rng{font-family:var(--mono);font-size:9px}
+  .minitbl .mtf .pbtn{border:1px solid var(--border);border-radius:5px;padding:1px 8px;font-size:9px;color:var(--text)}
+  .minitbl .mtf .pbtn.dis{opacity:.35}
+  .minitbl .mtf .pgs{margin-left:auto;display:flex;gap:5px;align-items:center}
+  .uigal{display:flex;gap:12px;flex-wrap:wrap}
+  .uist{display:grid;gap:4px;justify-items:center}
+  .uist .sl2{font-size:9px;font-family:var(--mono);color:var(--placeholder)}
+
+  .acc li{list-style:none;display:flex;gap:9px;align-items:flex-start;font-size:12px;line-height:1.55;
+      padding:5px 0;border-bottom:1px solid var(--border-var);color:var(--muted)}
+  .acc li:last-child{border-bottom:none}
+  .acc .cb{width:13px;height:13px;margin-top:2px}
+  .acc .when{color:var(--ty);font-weight:600} .acc .shall{color:var(--kw);font-weight:600}
+  .acc .ev2{font-family:var(--mono);font-size:9px;color:var(--accent);margin-left:5px}
+  .acc .tkref{font-family:var(--mono);font-size:9px;color:var(--kw);margin-left:5px}
+  .donegrid{display:grid;grid-template-columns:repeat(5,1fr);gap:9px;margin-bottom:14px}
+  .donegrid .dcell{background:var(--panel);border:1px solid var(--border-var);border-radius:8px;padding:10px 12px}
+  .donegrid .dv{font-size:16px;font-weight:600;font-family:var(--mono)}
+  .donegrid .dl{font-size:9.5px;color:var(--placeholder);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+
+  /* plan panel */
+  .planpanel{height:200px;background:var(--panel);border-top:1px solid var(--border-var);display:none;flex-direction:column;flex-shrink:0}
+  .planpanel.on{display:flex}
+  .ppl-head{display:flex;align-items:center;gap:10px;padding:5px 12px;border-bottom:1px solid var(--border-var);flex-shrink:0;flex-wrap:wrap}
+  .ppl-head .ti{font-size:12px;font-weight:600;display:flex;gap:8px;align-items:center}
+  .syncrcpt{font-size:9.5px;font-family:var(--mono);color:var(--placeholder)}
+  .ppl-acts{margin-left:auto;display:flex;gap:5px}
+  .ppl-acts .zbtn{font-size:11px;padding:2px 9px}
+  .ppl-body{flex:1;display:grid;grid-template-columns:1fr 1.2fr;min-height:0}
+  .pipe{padding:8px 13px;border-right:1px solid var(--border-var);overflow-y:auto}
+  .piperow{display:flex;gap:8px;align-items:center;padding:3.5px 7px;border-radius:6px;font-size:11.5px;color:var(--muted)}
+  .piperow .cb{width:13px;height:13px}
+  .piperow.act2{background:var(--info-bg);outline:1px solid var(--info-border);color:var(--text)}
+  .piperow.failR{background:var(--error-bg);outline:1px solid var(--error-border);color:var(--text)}
+  .piperow.gateR{background:var(--modified-bg);outline:1px solid var(--modified-border);color:var(--text)}
+  .piperow .lb{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .piperow .mini{font-size:9px;font-family:var(--mono);color:var(--placeholder)}
+  .livecol{padding:8px 13px;overflow-y:auto;display:grid;gap:4px;align-content:start}
+  .lc-h{font-size:9.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--placeholder);display:flex;gap:8px;align-items:center}
+  .arow{display:flex;gap:8px;align-items:center;font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+  .arow .tl{color:var(--ty);min-width:34px}
+  .arow.ok .tl{color:var(--success)} .arow.bad .tl{color:var(--deleted)} .arow.live{color:var(--text)}
+  .arow a{color:var(--accent);text-decoration:none}
+
+  .statusbar{display:flex;align-items:center;gap:2px;background:var(--background);padding:3px 8px;font-size:11.5px;color:var(--muted);flex-shrink:0}
+  .sb-i{display:flex;gap:6px;align-items:center;padding:2px 7px;border-radius:5px}
+  .sb-i:hover{background:var(--el-hover);color:var(--text)}
+  .sb-plan{font-weight:600}
+  .c-muted{color:var(--muted)} .c-warn{color:var(--modified)} .c-info{color:var(--accent)} .c-ok{color:var(--success)} .c-err{color:var(--deleted)}
+  .sb-right{margin-left:auto;display:flex;gap:2px}
+
+  /* ===== state visibility: in dr li rv st re la ex am ga dn ===== */
+  [data-only]{display:none!important}
+  body[data-state="in"] [data-only~="in"],body[data-state="qa"] [data-only~="qa"],body[data-state="dr"] [data-only~="dr"],body[data-state="li"] [data-only~="li"],
+  body[data-state="rv"] [data-only~="rv"],body[data-state="st"] [data-only~="st"],body[data-state="re"] [data-only~="re"],
+  body[data-state="la"] [data-only~="la"],body[data-state="gd"] [data-only~="gd"],body[data-state="ex"] [data-only~="ex"],body[data-state="am"] [data-only~="am"],
+  body[data-state="ga"] [data-only~="ga"],body[data-state="dn"] [data-only~="dn"]{display:var(--d, revert)!important}
+  /* shown-display defaults: per-component so layouts survive the toggle; explicit helpers win */
+  .tab,.tkcard,.gitstrip,.step2,.banner,.node,.railfoot,.evrow,.arow,.toolrow,.covmeter,
+  .pushrow,.floatbar,.hstate,.optchips,.uigal,.chead,.th,.dbtns2,.cbtns2{--d:flex}
+  .cb,.railrow,.tb2,.card>.crow2,.crow2,.driftbox,.altwrap,.donegrid,.cmsg,.cthread,.sugg,.card,.contract,.qcard,.rtest{--d:grid}
+  .card,.driftbox,.sugg,.cthread,.qcard{--d:block}
+  .chip,.shachip,.tkstat,.cstate,.statuspill,.streamtag,.blockerchip,.coderef,.amendtag,.sysbadge,
+  .tkchip2,.fixed,.gs-chip,.gs-ab,.gs-dirty,.spin,.fdot,.sel,.lsev,.ev2,.tkref,.happlied,.sync,.mini{--d:inline-flex}
+  .zbtn,.pbtn{--d:inline-block}
+  .df{--d:flex}.dg{--d:grid}.dif{--d:inline-flex}
+</style>
+</head>
+<body data-state="in">
+<div class="harness">
+  <h1>Plan 1.0 — one full cycle: "Add pagination to the invoices table" (acme-admin · LED-212) · the Plan tab &amp; panel follow the active thread (1 thread : 1 plan)</h1>
+  <div class="stepper">
+    <button class="nav" id="prev">‹</button>
+    <button class="stp" data-s="in"><span class="n">1</span>Questions</button>
+    <button class="stp" data-s="qa"><span class="n">2</span>Answers</button>
+    <button class="stp" data-s="dr"><span class="n">3</span>Draft</button>
+    <button class="stp" data-s="li"><span class="n">4</span>Lint</button>
+    <button class="stp" data-s="rv"><span class="n">5</span>Review</button>
+    <button class="stp" data-s="st"><span class="n">6</span>Staged rev</button>
+    <button class="stp" data-s="re"><span class="n">7</span>Rehearse</button>
+    <button class="stp" data-s="la"><span class="n">8</span>Launch</button>
+    <button class="stp" data-s="gd"><span class="n">9</span>Step guard</button>
+    <button class="stp" data-s="ex"><span class="n">10</span>Execute</button>
+    <button class="stp" data-s="am"><span class="n">11</span>Amend</button>
+    <button class="stp" data-s="ga"><span class="n">12</span>Gate</button>
+    <button class="stp" data-s="dn"><span class="n">13</span>Done</button>
+    <button class="nav" id="next">›</button>
+  </div>
+  <div class="statecap" id="cap"></div>
+
+<div class="win">
+  <div class="titlebar">
+    <span class="lights"><i></i><i></i><i></i></span>
+    <button class="tb-btn"><b>acme-admin</b></button><span class="tb-sep">/</span>
+    <button class="tb-btn br" id="tbranch">⎇ develop</button>
+    <span class="tb-right"><button class="tb-ic">⌕</button><span class="avatar">SH</span></span>
+  </div>
+
+  <div class="frame">
+    <nav class="threadsbar">
+      <div class="ts-head">Threads</div>
+      <div class="ts-group">▾ acme-admin</div>
+      <div class="ts-item active">
+        <div class="r1"><span class="sdot" id="tdot"></span><span class="nm">LED-212 invoices pagination</span></div>
+        <div class="r2" id="tsub"></div>
+      </div>
+      <div class="ts-item"><div class="r1"><span class="sdot done"></span><span class="nm">LED-198 export encoding fix</span></div>
+        <div class="r2"><span class="brb">merged · 3d</span></div></div>
+      <div class="ts-item"><div class="r1"><span class="sdot idle"></span><span class="nm">Refactor auth middleware</span></div>
+        <div class="r2"><span class="brb">idle · 1w</span></div></div>
+      <div class="ts-bottombar"><button class="tb-ic">◧</button><button class="tb-ic">🕘</button>
+        <span style="margin-left:auto"></span><button class="tb-ic">＋</button></div>
+    </nav>
+
+    <aside class="agentdock">
+      <div class="ap-toolbar"><span class="tt">LED-212 invoices pagination</span>
+        <span class="agname">Claude Agent</span><button class="ap-ic">＋</button><button class="ap-ic">⋯</button></div>
+      <div class="thread">
+        <div class="m user"><div class="bub">plan LED-212</div></div>
+
+        <div class="m agent" data-only="in qa">
+          <p data-only="in">Pulled <b>LED-212</b> and read the table + API — the loader fetches all 2,340 invoices every render. <b>Two quick questions, one at a time.</b> Pick an option, add context if it helps, or just answer in chat.</p>
+          <p data-only="qa">Pulled <b>LED-212</b> and read the table + API. Two questions before drafting:</p>
+          <div class="toolrow ok" style="margin-top:6px"><span class="tic">✓</span><span class="tname">jira · get_issue LED-212</span></div>
+          <div class="toolrow ok"><span class="tic">✓</span><span class="tname">read invoices route · table · export · schema</span></div>
+
+          <!-- Q&A wizard: state in = Q1 active, Q2 queued -->
+          <div class="qprog" data-only="in"><span>Question 1 of 2</span><span class="qd cur"></span><span class="qd"></span></div>
+          <div class="qcard" data-only="in"><div class="qh">Q1 · where does paging happen</div>
+            <div class="qt">The route ships everything today. Server-side (loader slices via the DB — fixes the 4s paint) or client-side (keep shipping all rows, page in the table — smaller change, perf stays)?</div>
+            <div class="optchips"><button class="picked">Server-side</button><button>Client-side</button><button>Why do you ask?</button></div>
+            <div class="ctxbox">
+              <div class="cl2">Add context — optional</div>
+              <div class="cin">heads up — this table is also embedded on the customer detail page, don't break that<span class="caret"></span></div>
+              <div class="cbr"><button class="zbtn primary" style="font-size:11px;padding:2px 10px">Confirm — next ⏎</button>
+                <button class="zbtn" style="font-size:11px;padding:2px 10px">Skip context</button>
+                <span class="hint">context lands in the plan record with the answer</span></div>
+            </div></div>
+          <div class="qcard queued" data-only="in"><div class="qh">Up next · Q2 — paging model</div>
+            <div class="qt" style="margin:0">Offset (jumpable pages) vs cursor (stable under inserts)</div></div>
+
+          <!-- state qa: both completed, compact, with provenance -->
+          <div class="qprog" data-only="qa"><span>2 of 2 answered</span><span class="qd donep"></span><span class="qd donep"></span></div>
+          <div class="qcard donez" data-only="qa"><div class="qh">Q1 · paging <span style="color:var(--success);text-transform:none;letter-spacing:0">· ✓ Server-side</span></div>
+            <div class="qt" style="margin:0;font-size:11px">context: <i>"table is also embedded on the customer detail page"</i></div>
+            <div class="qt" style="margin:4px 0 0;font-size:10.5px;color:var(--placeholder)">→ scope + criteria a1/a2 · context added risk r2 + a follow-up check in t3</div></div>
+          <div class="qcard donez" data-only="qa"><div class="qh">Q2 · paging model <span style="color:var(--success);text-transform:none;letter-spacing:0">· ✓ Offset</span></div>
+            <div class="qt" style="margin:0;font-size:10.5px;color:var(--placeholder)">→ Design decision d1: "offset over cursor" + rationale</div></div>
+
+          <div class="qcard"><div class="qh">A1 · assumption — not blocking</div>
+            <div class="qt">Ticket AC#3 says deep-linkable, so I'll <b>assume the URL owns page state</b> (?page=N) unless you object. Blocks drafted under this carry an "assumes A1" tag — contradict it later and I re-draft just those blocks.</div></div>
+          <div data-only="in" style="display:flex;gap:7px;margin-top:8px">
+            <button class="zbtn" style="font-size:11px">Draft now — use stated defaults</button>
+          </div>
+        </div>
+
+        <div class="m user dg" data-only="qa"><div class="bub">yeah URL owning it is right</div></div>
+        <div class="m agent" data-only="qa">
+          <p><b>Locked in — and your Q1 context mattered:</b> the customer-page embed is now risk r2 with a verify step in task 3. A1 is confirmed, not assumed. Answers live in the plan record (Spec → open questions), so they survive sessions. Drafting now.</p>
+          <div class="toolrow ok" style="margin-top:6px"><span class="tic">✓</span><span class="tname">plan_answer_question · q1 (+context), q2 · A1 confirmed</span></div>
+          <div class="toolrow"><span class="fdot"></span><span class="tname">plan_create · LED-212…</span></div>
+        </div>
+
+        <div class="m agent" data-only="dr">
+          <p><b>Drafting</b> — your answers became acceptance criteria; ticket AC is mapping into the coverage meter as I go.</p>
+          <div style="margin-top:6px">
+            <div class="toolrow ok"><span class="tic">✓</span><span class="tname">plan_create · LED-212</span></div>
+            <div class="toolrow ok"><span class="tic">✓</span><span class="tname">plan_update_section · spec (6 criteria)</span></div>
+            <div class="toolrow ok"><span class="tic">✓</span><span class="tname">plan_update_section · design (contract, ui-states)</span></div>
+            <div class="toolrow"><span class="fdot"></span><span class="tname">plan_update_section · task 4…</span></div>
+          </div></div>
+
+        <div class="m agent" data-only="li">
+          <p><b>Draft done — lint ran before handing it over.</b> Auto-fixed two (t4 test step; mapped ticket AC#4 "export unaffected" to a new criterion + gate step). One needs you: a file path that doesn't exist.</p>
+          <div class="toolrow ok" style="margin-top:6px"><span class="tic">✓</span><span class="tname">plan_lint · 3 findings · 2 auto-fixed</span></div></div>
+
+        <div class="m agent" data-only="rv">
+          <p><b>Rev 2 in review.</b> You attached the export route's code to c1 — agreed that's the landmine here. Batch is at 3; send when ready and I'll address everything in one pass.</p></div>
+
+        <div class="m agent" data-only="st">
+          <p><b>Proposed rev 3 — staged.</b> Plan stays at rev 2 until you apply hunks. On c1's second part (404 for bad pages): <b>pushing back</b> — clamping beats erroring here; reasoning and citations in the thread.</p>
+          <div class="toolrow ok" style="margin-top:6px"><span class="tic">✓</span><span class="tname">plan_propose_revision · 3 hunks</span></div>
+          <div class="toolrow ok"><span class="tic">✓</span><span class="tname">plan_reply_comment · c1 (partial pushback)</span></div></div>
+
+        <div class="m agent" data-only="re">
+          <p><b>Approved at rev 4 — rehearsal ran.</b> One mismatch: task 2 will also touch <code class="inline">invoices.types.ts</code> for the loader's return type. Add it or tell me to ignore.</p>
+          <div class="toolrow ok" style="margin-top:6px"><span class="tic">✓</span><span class="tname">plan_rehearse · 5 tasks · 52s</span></div></div>
+
+        <div class="m agent" data-only="la">
+          <p>Mismatch resolved (types file added to t2). Branch will be <code class="inline">led-212-invoices-pagination</code> off develop — main tree, no worktree needed (only active plan).</p>
+          <div class="permprompt">
+            <div class="pt">Ready to code?</div>
+            <div class="pd">Execute plan LED-212 — 5 tasks, gate before staging sign-off. I re-read the plan before every task; one commit per task, [LED-212] prefixed.</div>
+            <div class="pbtns">
+              <button><b>▶ Launch</b> — approve edits as I go</button>
+              <button>▶ Launch — auto-approve edits in this repo</button>
+              <button>Keep planning</button>
+            </div></div></div>
+
+        <div class="m agent" data-only="gd">
+          <p><b>Task 1 is holding at a guarded step.</b> You approved the migration guard (step 2 receipt) and <code class="inline">migrate dev</code> ran clean. Step 3 is an <b>input guard</b>: verify the index on your local DB and record what you saw — the PreToolUse hook blocks me from continuing until the plan holds your input. Take your time; state survives even if you close Zed.</p>
+          <div class="toolrow ok" style="margin-top:6px"><span class="tic">✓</span><span class="tname">guard s2 approved · prisma migrate dev ✓</span></div>
+          <div class="toolrow"><span class="fdot"></span><span class="tname">waiting · guard s3 (input) — verification</span></div></div>
+
+        <div class="m agent" data-only="ex">
+          <p>Task 1 done <span style="font-family:var(--mono);font-size:10px;color:var(--accent)">3f81c2a</span> — acceptance #1 evidence attached (5 tests). On task 2 now: loader params with clamping, export path untouched per c1.</p>
+          <div style="margin-top:6px">
+            <div class="toolrow ok"><span class="tic">✓</span><span class="tname">plan_get · rev 4</span></div>
+            <div class="toolrow ok"><span class="tic">✓</span><span class="tname">Edit route.tsx</span><span style="font-size:10px;color:var(--vc-added)">+12</span></div>
+            <div class="toolrow"><span class="fdot"></span><span class="tname">vitest run route.test.tsx</span></div>
+          </div></div>
+
+        <div class="m agent" data-only="am">
+          <p><b>Task 4 failed.</b> TanStack Table resets sorting whenever page data swaps — sort state and page state fight. Proposing an amendment instead of hacking around it: hold sort in the URL beside ?page (single source of truth, matches A1). Nothing runs until you decide.</p>
+          <div class="toolrow bad" style="margin-top:6px"><span class="tic" style="color:var(--deleted)">✕</span><span class="tname">vitest · sort resets on page change (2 failed)</span></div>
+          <div class="toolrow ok"><span class="tic">✓</span><span class="tname">plan_propose_amendment · rev 5</span></div></div>
+
+        <div class="m agent" data-only="ga">
+          <p>Tasks 1–4 done. <b>Gate at task 5</b> — staging evidence attached. Also: LED-212 changed upstream while we worked (resynced at gate check) — drift card in the plan; the page-size change is staged as rev 6.</p>
+          <div class="toolrow ok" style="margin-top:6px"><span class="tic">✓</span><span class="tname">jira · get_issue LED-212 (resync)</span></div>
+          <div class="toolrow ok"><span class="tic">✓</span><span class="tname">plan_gate_reached · t5 + 4 evidence items</span></div></div>
+
+        <div class="m agent" data-only="dn">
+          <p><b>LED-212 complete.</b> 6/6 acceptance with evidence, ticket coverage 4/4, PR #318 open with the plan as its body. And — this is the 3rd plan where you've required back-compat defaults on shared endpoints; want that as a standing rule?</p>
+          <div class="toolrow ok" style="margin-top:6px"><span class="tic">✓</span><span class="tname">gh pr create · #318 → develop</span></div>
+          <div class="toolrow ok"><span class="tic">✓</span><span class="tname">jira · comment + transition LED-212 → Done</span></div></div>
+      </div>
+
+      <div class="composer"><div class="box">
+        <div class="ph">Message the agent…</div>
+        <div class="crow"><span class="selpill">Write ⌄</span><span class="selpill">Claude Fable 5 ⌄</span><span class="tokens" id="tok">3.8k</span></div>
+      </div></div>
+    </aside>
+
+    <div class="center">
+      <div class="tabbar">
+        <div class="navarrows"><span>‹</span><span>›</span></div>
+        <div class="tab" id="tab-editor"><span class="fic" style="color:var(--ty)">TS</span> InvoicesTable.tsx</div>
+        <div class="tab" id="tab-plan" data-only="dr li rv st re la gd ex am ga dn"><span class="pdot" id="tabdot"></span> Plan — LED-212</div>
+        <div class="tabbar-right"><span>⫲</span><span>＋</span></div>
+      </div>
+
+      <div style="flex:1;display:flex;flex-direction:column;min-height:0">
+      <!-- EDITOR (intake) -->
+      <div class="centerview" id="view-editor">
+        <div class="editorbuf">
+<div class="ln"><span class="g">18</span><span class="c"><span class="tok-kw">export</span> <span class="tok-kw">function</span> <span class="tok-fn">InvoicesTable</span><span class="tok-punc">({</span> <span class="tok-var">invoices</span> <span class="tok-punc">}:</span> <span class="tok-ty">Props</span><span class="tok-punc">) {</span></span></div>
+<div class="ln"><span class="g">19</span><span class="c">  <span class="tok-cm">// TODO(LED-212): renders all 2,340 rows — first paint ~4s on prod data</span></span></div>
+<div class="ln"><span class="g">20</span><span class="c">  <span class="tok-kw">return</span> <span class="tok-punc">(</span></span></div>
+<div class="ln"><span class="g">21</span><span class="c">    <span class="tok-punc">&lt;</span><span class="tok-ty">Table</span><span class="tok-punc">&gt;</span></span></div>
+<div class="ln"><span class="g">22</span><span class="c">      <span class="tok-punc">{</span><span class="tok-var">invoices</span><span class="tok-punc">.</span><span class="tok-fn">map</span><span class="tok-punc">((</span><span class="tok-var">inv</span><span class="tok-punc">) =&gt; (</span></span></div>
+<div class="ln"><span class="g">23</span><span class="c">        <span class="tok-punc">&lt;</span><span class="tok-ty">InvoiceRow</span> <span class="tok-prop">key</span><span class="tok-punc">={</span><span class="tok-var">inv</span><span class="tok-punc">.</span><span class="tok-prop">id</span><span class="tok-punc">}</span> <span class="tok-prop">invoice</span><span class="tok-punc">={</span><span class="tok-var">inv</span><span class="tok-punc">} /&gt;</span></span></div>
+<div class="ln"><span class="g">24</span><span class="c">      <span class="tok-punc">))}</span></span></div>
+<div class="ln"><span class="g">25</span><span class="c">    <span class="tok-punc">&lt;/</span><span class="tok-ty">Table</span><span class="tok-punc">&gt;</span></span></div>
+<div class="ln"><span class="g">26</span><span class="c">  <span class="tok-punc">);</span></span></div>
+<div class="ln"><span class="g">27</span><span class="c"><span class="tok-punc">}</span></span></div>
+        </div>
+      </div>
+
+      <!-- PLAN -->
+      <div class="centerview" id="view-plan">
+        <div class="plantoolbar">
+          <span class="statuspill p-muted" data-only="dr">DRAFTING</span>
+          <span class="statuspill p-warn" data-only="li rv">IN REVIEW</span>
+          <span class="statuspill p-warn" data-only="st">REV 3 PROPOSED</span>
+          <span class="statuspill p-ok" data-only="re la">APPROVED</span>
+          <span class="statuspill p-warn pulse2" data-only="gd">GUARDED STEP</span>
+          <span class="statuspill p-info" data-only="ex">EXECUTING</span>
+          <span class="statuspill p-err" data-only="am">TASK FAILED</span>
+          <span class="statuspill p-warn pulse2" data-only="ga">GATE</span>
+          <span class="statuspill p-ok" data-only="dn">DONE</span>
+          <span class="rev" data-only="dr">rev 1</span><span class="rev" data-only="li rv">rev 2</span>
+          <span class="rev" data-only="st">rev 2 → 3 staged</span><span class="rev" data-only="re la">rev 4</span>
+          <span class="rev" data-only="gd">rev 4 · t1 s3</span><span class="rev" data-only="ex">rev 4</span><span class="rev" data-only="am">rev 5 proposed</span>
+          <span class="rev" data-only="ga">rev 5 · drift rev 6 staged</span><span class="rev" data-only="dn">rev 6 · final</span>
+          <div class="lens"><button data-l="spec" aria-pressed="false">Spec</button><button data-l="design" aria-pressed="false">Design</button><button data-l="tasks" aria-pressed="true">Tasks</button></div>
+          <span class="streamtag dif" data-only="dr"><span class="fdot"></span> drafting 4/5…</span>
+          <span class="blockerchip dif" data-only="rv st">⚑ 1 blocker</span>
+          <span class="spacer"></span>
+          <button class="zbtn" data-only="rv">Send for revision · <b style="color:var(--modified)">3</b></button>
+          <button class="zbtn" data-only="st">Apply all (1 left)</button>
+          <button class="zbtn primary" data-only="rv st" disabled title="1 blocker open">Approve</button>
+          <button class="zbtn primary" data-only="re" disabled title="1 rehearsal mismatch">▶ Launch</button>
+          <button class="zbtn primary" data-only="la">▶ Launch plan</button>
+          <button class="zbtn" data-only="gd" disabled>⏸ holding at guard</button>
+          <button class="zbtn" data-only="ex">⏸ Pause</button>
+          <button class="zbtn ok" data-only="am">Accept amendment</button><button class="zbtn danger" data-only="am">Reject</button>
+          <button class="zbtn ok" data-only="ga">✓ Approve gate</button>
+          <button class="zbtn" data-only="dn">Export ⌄</button><button class="zbtn primary" data-only="dn">Open PR #318 ↗</button>
+        </div>
+
+        <div class="planfull">
+          <!-- banners -->
+          <div class="banner warn df" data-only="gd">✋ <span><b>Holding at a guarded step</b> — task 1 · step 3 needs your verification before the agent may continue (hook-enforced).</span></div>
+          <div class="banner err df" data-only="am">✕ <span><b>Task 4 failed — amendment rev 5 proposed.</b> Sort resets on page change (TanStack). Review the fix below; nothing executes until you decide.</span></div>
+          <div class="banner warn df" data-only="ga">◆ <span><b>Gate at task 5</b> — staging evidence attached. Ticket drift detected on resync (below).</span></div>
+          <div class="banner ok df" data-only="dn">✓ <span><b>Plan complete.</b> 6/6 acceptance · ticket coverage 4/4 · PR #318 generated from the plan.</span></div>
+
+          <h1 class="ptitle">Add pagination to the invoices table</h1>
+
+          <!-- ticket card -->
+          <div class="tkcard" data-only="dr li rv st re la gd ex am dn">
+            <span class="tkey">⛓ LED-212</span><span class="tmeta">Story · High · Jira</span>
+            <span class="tkstat" data-only="dr li rv st re la">To Do</span>
+            <span class="tkstat prog dif" data-only="gd ex am">In Progress</span>
+            <span class="tkstat done2 dif" data-only="dn">Done · commented</span>
+            <span class="covmeter">
+              <span data-only="dr" class="df" style="gap:4px"><span class="seg2 on"></span><span class="seg2 on"></span><span class="seg2"></span><span class="seg2"></span><span class="cl">AC 2/4 mapped…</span></span>
+              <span data-only="li rv st re la gd ex am" class="df" style="gap:4px"><span class="seg2 on"></span><span class="seg2 on"></span><span class="seg2 on"></span><span class="seg2 on"></span><span class="cl">ticket AC 4/4 covered</span></span>
+              <span data-only="dn" class="df" style="gap:4px"><span class="seg2 on"></span><span class="seg2 on"></span><span class="seg2 on"></span><span class="seg2 on"></span><span class="cl">4/4 verified</span></span>
+            </span>
+            <span class="sync" data-only="dr li rv st re la gd ex am">synced 2m · ↻</span>
+            <span class="sync" data-only="dn">write-back ✓</span>
+          </div>
+          <!-- drift variant (gate) -->
+          <div class="tkcard drift df" data-only="ga">
+            <span class="tkey">⛓ LED-212</span><span class="tmeta">Story · High · Jira</span>
+            <span class="tkstat prog">In Progress</span>
+            <span class="covmeter"><span class="seg2 on"></span><span class="seg2 warn2"></span><span class="seg2 on"></span><span class="seg2 on"></span><span class="cl" style="color:var(--modified)">AC#2 changed — 1 needs update</span></span>
+            <span class="sync" style="color:var(--modified)">drift · resynced at gate</span>
+          </div>
+          <div class="driftbox dg" data-only="ga">
+            <div class="dh3">⛓ Ticket drift · LED-212 edited by @pm-sarah 20m ago</div>
+            <div class="db3">
+              <div>AC#2 changed — coverage re-ran; the fix is staged as <b style="color:var(--text)">rev 6</b> (updates criterion a3 + task 3 default):</div>
+              <div class="dl2 old">footer shows range with page size 25</div>
+              <div class="dl2 new">footer shows range with page size 50, selectable 25/50/100</div>
+            </div>
+            <div class="dbtns2"><button class="zbtn ok">Apply rev 6 — t3 already done, adds follow-up step</button><button class="zbtn">Discuss on ticket</button></div>
+          </div>
+
+          <!-- branch strip -->
+          <div class="gitstrip df" data-only="la gd ex am ga dn">
+            <span class="gs-chip">⎇ led-212-invoices-pagination <span class="base">← develop</span></span>
+            <span class="gs-ab"><span class="up" id="ahead">↑0</span><span class="down">↓0</span></span>
+            <span class="gs-dirty"><i id="dirtydot"></i> <span id="dirtytxt">clean</span></span>
+            <span class="gs-pr" data-only="la gd ex am ga">PR —</span>
+            <span class="gs-pr live dif" data-only="dn">⑂ PR #318 · checks ✓ · @dana approved</span>
+          </div>
+
+          <!-- lint card -->
+          <div class="card dg" data-only="li">
+            <div class="chd warnh">⚙ Plan lint · 3 findings · 2 auto-fixed <span class="src">.plans/policy.json</span></div>
+            <div class="crow2">
+              <div class="r1"><span class="lsev b">⚑</span> Task 3 references a file that doesn't exist <span class="rule">files-must-exist</span></div>
+              <div class="r2"><code class="inline">app/components/InvoiceTable.tsx</code> isn't in the repo — the component is <code class="inline">InvoicesTable.tsx</code>.</div>
+              <div class="r2 df" style="gap:6px"><button class="zbtn" style="font-size:10.5px;padding:1px 9px">It's InvoicesTable.tsx — fix</button><button class="zbtn" style="font-size:10.5px;padding:1px 9px">Create new file</button></div>
+            </div>
+            <div class="crow2" style="opacity:.75">
+              <div class="r1"><span class="lsev w">⚠</span> Task 4 had no test step <span class="fixed">✓ auto-fixed</span><span class="rule">every-task-has-tests</span></div>
+            </div>
+            <div class="crow2" style="opacity:.75">
+              <div class="r1"><span class="lsev w">⚠</span> Ticket AC#4 "export unaffected" was uncovered <span class="fixed">✓ added a6 + gate check</span><span class="rule">ticket-coverage</span></div>
+            </div>
+          </div>
+          <div class="card dg" data-only="rv st re la"><div class="chd okh">⚙ Plan lint · passed <span class="src">8/8 rules · rev 2</span></div></div>
+
+          <!-- staged revision -->
+          <div class="card dg" data-only="st">
+            <div class="chd infoh">Δ Proposed revision · rev 2 → 3 · staged <span class="src">plan unchanged until applied</span></div>
+            <div class="crow2">
+              <div class="r1">Task 2 · step 1 <span style="font-size:10px;color:var(--placeholder)">from c1</span><span class="hstate"><span class="happlied">✓ Applied</span></span></div>
+              <div class="dline old">Accept page + pageSize params in the loader.</div>
+              <div class="dline new">Accept page + pageSize; omitted params → full result (export path unchanged); out-of-range clamps to last page.</div>
+            </div>
+            <div class="crow2">
+              <div class="r1">Design · contract k1 <span style="font-size:10px;color:var(--placeholder)">from s1 (suggested edit)</span>
+                <span class="hstate df" style="gap:6px"><button class="zbtn ok" style="font-size:10.5px;padding:1px 9px">✓ Apply</button><button class="zbtn danger" style="font-size:10.5px;padding:1px 9px">Reject</button></span></div>
+              <div class="dline old">?pageSize=500 → 500 rows</div>
+              <div class="dline new">?pageSize=500 → clamped to 100</div>
+            </div>
+            <div class="crow2">
+              <div class="r1">Task 3 · approach <span style="font-size:10px;color:var(--placeholder)">from a1 (option B)</span><span class="hstate"><span class="happlied">✓ Applied</span></span></div>
+              <div class="dline old">Hold page in component state; sync to URL on change.</div>
+              <div class="dline new">Loader searchParams are the single source of truth — component reads, never owns, the page.</div>
+            </div>
+          </div>
+
+          <!-- rehearsal -->
+          <div class="card dg" data-only="re">
+            <div class="chd infoh">🎬 Rehearsal · rev 4 <span class="src">no code executed · 52s</span></div>
+            <div class="crow2"><div class="r1">t1 · paginated query + count <span class="st3 ok">✓ matches plan</span></div></div>
+            <div class="crow2" style="background:var(--modified-bg)">
+              <div class="r1">t2 · loader params <span class="st3 warn">⚠ 1 mismatch</span></div>
+              <div class="r2">rehearsed: route.tsx M · route.test.tsx M · <span style="color:var(--modified)">invoices.types.ts M — NOT in plan</span> (loader return type gains total/page)</div>
+              <div class="r2 df" style="gap:6px"><button class="zbtn ok" style="font-size:10.5px;padding:1px 9px">＋ Add file to t2</button><button class="zbtn" style="font-size:10.5px;padding:1px 9px">Ignore</button></div>
+            </div>
+            <div class="crow2"><div class="r1">t3 · footer + URL state <span class="st3 ok">✓</span></div></div>
+            <div class="crow2"><div class="r1">t4 · preserve sort/filter <span class="st3 ok">✓</span></div></div>
+            <div class="crow2"><div class="r1">t5 · GATE staging verify <span class="st3 ok">✓ evidence plan valid</span></div></div>
+          </div>
+
+          <!-- gate evidence -->
+          <div class="card dg" data-only="ga">
+            <div class="chd warnh">◆ Gate · task 5 · sign-off required</div>
+            <div class="crow2">
+              <div class="evrow"><span class="ei">✓</span> staging: 2,340 rows · page 94 reachable — <a href="#">screenshot</a></div>
+              <div class="evrow"><span class="ei">✓</span> loader p95 412ms → 38ms — <a href="#">trace</a></div>
+              <div class="evrow"><span class="ei">✓</span> CSV export byte-identical pre/post — <a href="#">diff ✓ 0 bytes</a></div>
+              <div class="evrow"><span class="ei">✓</span> deep-link ?page=7&sort=amount restores — <a href="#">e2e run</a></div>
+            </div>
+            <div class="cbtns2"><button class="zbtn ok">✓ Approve &amp; finish</button><button class="zbtn">Re-verify all</button><button class="zbtn">Request changes</button></div>
+          </div>
+
+          <!-- done -->
+          <div class="donegrid dg" data-only="dn">
+            <div class="dcell"><div class="dv">41m</div><div class="dl">duration</div></div>
+            <div class="dcell"><div class="dv">5</div><div class="dl">commits</div></div>
+            <div class="dcell"><div class="dv">6/6</div><div class="dl">acceptance</div></div>
+            <div class="dcell"><div class="dv">4/4</div><div class="dl">ticket AC</div></div>
+            <div class="dcell"><div class="dv">6</div><div class="dl">revisions</div></div>
+          </div>
+          <div class="card dg" data-only="dn">
+            <div class="chd kwh">⑂ PR #318 → develop · body from plan · synced rev 6</div>
+            <div class="crow2">
+              <div class="evrow"><span class="ei">✓</span> ci/typecheck · <span class="ei" style="width:auto">✓</span> ci/vitest (31) · <span class="ei" style="width:auto">✓</span> ci/e2e</div>
+              <div class="evrow"><span class="ei">✓</span> @dana approved (routes owner) · <span style="color:var(--accent)">◔</span> @miguel pending (db owner)</div>
+            </div>
+          </div>
+          <div class="card dg" data-only="dn">
+            <div class="chd kwh">✦ Pattern · 3rd back-compat-defaults request — save as standing rule?</div>
+            <div class="crow2">
+              <div class="r2" style="padding-left:0">Occurrences: <span class="coderef">c1 · LED-212</span> <span class="coderef">c2 · LED-198</span> <span class="coderef">c4 · LED-171</span></div>
+              <div class="r2" style="padding-left:0;font-family:var(--mono);font-size:10px;color:var(--text);background:var(--editor);border:1px solid var(--border-var);border-radius:6px;padding:7px 10px">- Shared endpoints keep default behavior when new params are omitted;<br>&nbsp;&nbsp;existing callers must be listed and verified in the plan.</div>
+            </div>
+            <div class="cbtns2"><button class="zbtn ok">✓ Save rule</button><button class="zbtn">Also add to plan-lint</button><button class="zbtn" style="border:none;color:var(--placeholder)">Not now</button></div>
+          </div>
+
+          <!-- ============ TASKS LENS ============ -->
+          <div class="lensview on" id="lens-tasks">
+            <div class="sechead">Tasks
+              <span data-only="dr">· drafting 4/5</span><span data-only="li rv st">· 5</span><span data-only="re la">· 5 · rehearsed</span>
+              <span data-only="gd">· 0/5 · at guard</span><span data-only="ex">· 1/5</span><span data-only="am">· 3/5 · 1 failed</span><span data-only="ga">· 4/5</span><span data-only="dn">· 5/5</span>
+              <span class="line"></span></div>
+
+            <div class="railwrap" id="railwrap">
+              <div class="railline" data-only="gd ex am ga dn"></div>
+
+              <!-- t1 -->
+              <div class="railrow">
+                <div class="node" data-only="gd ex am ga dn" data-ncls="gd:spinn|ex:commit|am:commit|ga:commit|dn:commit"><i></i></div>
+                <article class="task" data-cls="gd:activeT|ex:done|am:done|ga:done|dn:done">
+                  <div class="th">
+                    <span class="cb" data-only="dr li rv st re la"></span>
+                    <span class="spin df" data-only="gd"></span>
+                    <span class="cb ok2 dg" data-only="ex am ga dn">✓</span>
+                    <span class="num">1</span><span class="t">Paginated invoices query + total count</span>
+                    <span class="tkchip2">LED-212</span><span class="sysbadge s-be">Backend</span>
+                    <span class="guardb appr dif" data-only="li rv st re la">⛨ 2 guarded steps</span>
+                    <span class="shachip dif" data-only="ex am ga dn">⌥ 3f81c2a <span class="ds"><span class="p">+42</span> <span class="m2">−6</span></span></span>
+                    <span class="chip tests dif" data-only="ex am ga dn">✓ 5 tests</span>
+                    <span class="chip ev dif" data-only="ex am ga dn">⛨ guards 2/2</span></div>
+                  <div class="tb2" data-only="li rv st re la gd">
+                    <div class="step2"><span class="sn" data-only="li rv st re la">1</span><span class="stepck df" data-only="gd">✓</span>
+                      <div style="flex:1">Failing test first: <code class="inline">listInvoices({page,pageSize})</code> + <code class="inline">countInvoices()</code> slice/count behavior.</div></div>
+                    <div class="step2"><span class="sn" data-only="li rv st re la">2</span><span class="stepck df" data-only="gd">✓</span>
+                      <div style="flex:1">Create + run migration <code class="inline">add_idx_invoices_created_at</code> — sorted pagination needs the index.
+                        <span class="guardb appr" data-only="li rv st re la">⛨ guarded · approve to run</span>
+                        <span class="guardrcpt dif" data-only="gd">⛨ approved 09:41 · migrate dev ✓</span></div></div>
+                    <div class="step2"><span class="sn">3</span>
+                      <div style="flex:1">Verify the migration on your local DB — schema + query plan.
+                        <span class="guardb inp" data-only="li rv st re la">✋ needs your input</span>
+                        <span class="guardb act dif" data-only="gd">✋ waiting for your input</span>
+                        <div class="inpanel dg" data-only="gd">
+                          <div class="il">Record verification — required to continue · stored as evidence on a1</div>
+                          <div class="cin" style="background:var(--editor)">Index Scan using idx_invoices_created_at (cost=0.29..8.41) — plan looks right ✓<span class="caret"></span></div>
+                          <div style="display:flex;gap:7px;margin-top:7px;align-items:center">
+                            <button class="zbtn primary" style="font-size:11px">Record &amp; continue ⏎</button>
+                            <button class="zbtn" style="font-size:11px">Pause — I'll verify later</button>
+                            <span style="font-size:9.5px;color:var(--placeholder);margin-left:auto">hook blocks the agent until recorded</span></div>
+                        </div></div></div>
+                    <div class="step2"><span class="sn">4</span><div style="flex:1">Implement, tests green, commit.</div></div>
+                  </div>
+                </article>
+              </div>
+
+              <!-- t2 -->
+              <div class="railrow">
+                <div class="node" data-only="gd ex am ga dn" data-ncls="ex:spinn|am:commit|ga:commit|dn:commit"><i></i></div>
+                <article class="task" data-cls="ex:activeT|am:done|ga:done|dn:done">
+                  <div class="th">
+                    <span class="cb" data-only="dr li rv st re la gd"></span>
+                    <span class="spin df" data-only="ex"></span>
+                    <span class="cb ok2 dg" data-only="am ga dn">✓</span>
+                    <span class="num">2</span><span class="t">Loader accepts page params · clamps · export-safe defaults</span>
+                    <span class="tkchip2">LED-212</span><span class="sysbadge s-be">Backend</span>
+                    <span class="dif" data-only="rv st" style="font-size:10px;color:var(--modified)">💬 c1</span>
+                    <span class="dif" data-only="re la" style="font-size:9px;color:var(--ty)">+ invoices.types.ts (rehearsal)</span>
+                    <span class="shachip dif" data-only="am ga dn">⌥ b7d94ee <span class="ds"><span class="p">+38</span> <span class="m2">−4</span></span></span></div>
+                  <div class="tb2">
+                    <!-- step w/ selection + floatbar (review) -->
+                    <div class="step2" data-only="rv"><span class="sn">1</span>
+                      <div style="flex:1">Accept <span class="sel">page + pageSize params in the loader</span> and pass to the query.
+                        <div class="floatbar df" data-only="rv">
+                          <button><span class="fi">💬</span> Comment</button><span class="sp"></span>
+                          <button><span class="fi">✎</span> Suggest</button><span class="sp"></span>
+                          <button><span class="fi">⇄</span> Alternatives</button><span class="sp"></span>
+                          <button><span class="fi">⚑</span></button></div>
+                      </div></div>
+                    <div class="step2" data-only="st re la"><span class="sn">1</span>
+                      <div style="flex:1">Accept page + pageSize; <b>omitted params → full result</b> (export path unchanged); out-of-range clamps to last page. <span class="dif" style="font-size:9px;color:var(--accent);border:1px solid var(--info-border);background:var(--info-bg);border-radius:99px;padding:0 6px;font-weight:600">Δ rev 3 · c1</span></div></div>
+
+                    <!-- c1 thread -->
+                    <div class="cthread dg" data-only="rv st">
+                      <div class="chead">
+                        <span class="cstate open dif" data-only="rv">⚑ blocker · open</span>
+                        <span class="cstate push dif" data-only="st">⚑ blocker · pushback</span>
+                        <span class="anch2">c1 ↪ t2.s1 + export/route.ts:12</span></div>
+                      <div class="cmsg"><div class="who"><span class="av u">Y</span> You</div>
+                        <p>The CSV export calls this same loader with <b>no params</b> — it must keep getting the full set. Also: return 404 on out-of-range pages so bad links fail loud.</p>
+                        <div class="codequote">api.invoices.export/route.ts:12 · const all = await invoicesLoader(request); // expects everything</div>
+                        <span class="coderef">↗ export/route.ts:12 · attached from buffer</span></div>
+                      <div class="cmsg dg" data-only="st"><div class="who"><span class="av a">C</span> Claude</div>
+                        <p><b style="color:var(--text)">Done on back-compat</b> — omitted params return the full set; export verified in the gate (see contract + a6).</p>
+                        <p style="margin-top:4px"><b style="color:var(--deleted)">Pushback on the 404:</b> pages drift when rows are deleted — a bookmarked ?page=94 that's now page 93 would hard-fail. Clamping to the last page keeps links alive; the tray shows real data either way. Evidence: deletions in <span class="coderef">↗ invoices.service.ts:71</span>, no 404 handling in <span class="coderef">↗ InvoicesTable.tsx:31</span>.</p>
+                        <div class="pushrow"><button class="zbtn">Change anyway — 404</button><button class="zbtn ok">Keep as planned — clamp</button></div></div>
+                    </div>
+
+                    <!-- contract preview -->
+                    <div class="preview" data-only="rv st re la">
+                      <div class="plabel">◈ Contract — GET /invoices loader</div>
+                      <div class="contract">
+                        <div class="crw"><span class="in">(no params)</span><span class="arr">→</span><span class="out">all rows · legacy + CSV export path</span></div>
+                        <div class="crw"><span class="in">?page=2&amp;pageSize=25</span><span class="arr">→</span><span class="out">rows 26–50 + total 2,340</span></div>
+                        <div class="crw"><span class="in">?page=999</span><span class="arr">→</span><span class="out warn3">clamped to last page</span></div>
+                        <div class="crw"><span class="in">?pageSize=500</span><span class="arr">→</span>
+                          <span data-only="rv"><span class="out">500 rows · <span class="sel">uncapped</span></span></span>
+                          <span class="dif" data-only="st re la"><span class="out warn3">clamped to 100 <span style="font-size:8.5px;color:var(--accent)">Δ s1</span></span></span></div>
+                      </div></div>
+                    <!-- suggestion s1 -->
+                    <div class="sugg dg" data-only="rv">
+                      <div class="sh">✎ Suggested edit · you <span class="anch2">s1 ↪ design.k1</span><span class="cstate open" style="margin-left:6px">open</span></div>
+                      <div class="srw old">?pageSize=500 → 500 rows</div>
+                      <div class="srw new">?pageSize=500 → clamped to 100</div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+
+              <!-- t3 -->
+              <div class="railrow">
+                <div class="node" data-only="gd ex am ga dn" data-ncls="am:commit|ga:commit|dn:commit"><i></i></div>
+                <article class="task" data-cls="am:done|ga:done|dn:done">
+                  <div class="th">
+                    <span class="cb" data-only="dr li rv st re la gd ex"></span><span class="cb ok2 dg" data-only="am ga dn">✓</span>
+                    <span class="num">3</span><span class="t">Footer pagination controls + URL state</span>
+                    <span class="tkchip2">LED-212</span><span class="sysbadge s-fe">Frontend</span>
+                    <span class="dif" data-only="rv st" style="font-size:10px;color:var(--ty)">⇄ a1</span>
+                    <span class="dif" data-only="ga dn" style="font-size:9px;color:var(--modified)">✎ rev 6: size selector</span>
+                    <span class="shachip dif" data-only="am ga dn">⌥ a52f7c1 <span class="ds"><span class="p">+96</span> <span class="m2">−12</span></span></span></div>
+                  <div class="tb2">
+                    <div data-only="dr"><div class="skl" style="width:70%"></div><div class="skl" style="width:52%"></div></div>
+                    <!-- alternatives -->
+                    <div class="altwrap dg" data-only="rv">
+                      <div style="font-size:10px;color:var(--ty);font-weight:700;text-transform:uppercase;letter-spacing:.5px">⇄ a1 — who owns page state?</div>
+                      <div class="altcard"><div class="ah2"><span class="l">A</span> Component state, sync to URL</div><div class="tr">+ familiar &nbsp;− two sources of truth, back-button bugs</div></div>
+                      <div class="altcard pick"><div class="ah2"><span class="l">B</span> Loader searchParams own it <span style="margin-left:auto;font-size:9.5px;color:var(--success)">✓ selected</span></div><div class="tr">+ deep-link &amp; back-button free · matches assumption A1 &nbsp;− slightly more loader wiring</div></div>
+                      <div class="altcard"><div class="ah2"><span class="l">C</span> Global store</div><div class="tr">+ reusable &nbsp;− overkill, new coupling</div></div>
+                    </div>
+                    <!-- ui preview -->
+                    <div class="preview" data-only="rv st re la">
+                      <div class="plabel">◈ Preview — footer states</div>
+                      <div class="uigal">
+                        <div class="uist"><div class="minitbl"><div class="mth"><span>Invoice</span><span>Customer</span><span>Amount</span></div>
+                          <div class="mtr"><span>INV-1042</span><span>Meridian Co</span><span>$1,240.00</span></div>
+                          <div class="mtr"><span>INV-1041</span><span>Baxter LLC</span><span>$318.50</span></div>
+                          <div class="mtf"><span class="rng">26–50 of 2,340</span><span class="pgs"><button class="pbtn">‹ Prev</button><button class="pbtn">Next ›</button></span></div></div>
+                          <span class="sl2">mid-list · ?page=2</span></div>
+                        <div class="uist"><div class="minitbl"><div class="mtf" style="border-top:none"><span class="rng">1–25 of 2,340</span><span class="pgs"><button class="pbtn dis">‹ Prev</button><button class="pbtn">Next ›</button></span></div></div>
+                          <span class="sl2">first page · prev disabled</span></div>
+                        <div class="uist"><div class="minitbl"><div class="mtf" style="border-top:none"><span class="rng">2,326–2,340 of 2,340</span><span class="pgs"><button class="pbtn">‹ Prev</button><button class="pbtn dis">Next ›</button></span></div></div>
+                          <span class="sl2">last page · next disabled</span></div>
+                        <div class="uist"><div class="minitbl"><div class="mtf" style="border-top:none"><span class="rng">12 of 12</span><span class="pgs" style="opacity:.35"><span style="font-size:8.5px">controls hidden</span></span></div></div>
+                          <span class="sl2">single page · no controls</span></div>
+                      </div></div>
+                  </div>
+                </article>
+              </div>
+
+              <!-- t4b amendment (ga, dn) -->
+              <div class="railrow" data-only="ga dn" style="position:relative">
+                <div class="amendcurve"></div>
+                <div class="node amendn"><i></i></div>
+                <article class="task done">
+                  <div class="th"><span class="cb ok2">✓</span><span class="num">4b</span>
+                    <span class="t">Hold sort state in URL params</span><span class="tkchip2">LED-212</span>
+                    <span class="amendtag">◆ amendment · rev 5</span>
+                    <span class="shachip">⌥ 9c3e771 <span class="ds"><span class="p">+18</span> <span class="m2">−22</span></span></span></div>
+                </article>
+              </div>
+
+              <!-- t4 -->
+              <div class="railrow">
+                <div class="node" data-only="gd ex ga dn" data-ncls="ga:commit|dn:commit"><i></i></div>
+                <div class="node failn" data-only="am"><i></i></div>
+                <article class="task" data-cls="am:failed|ga:done|dn:done">
+                  <div class="th">
+                    <span class="cb" data-only="dr li rv st re la gd ex"></span>
+                    <span class="cb fail dg" data-only="am">✕</span><span class="cb ok2 dg" data-only="ga dn">✓</span>
+                    <span class="num">4</span><span class="t">Preserve sort &amp; filter across page changes</span>
+                    <span class="tkchip2">LED-212</span><span class="sysbadge s-fe">Frontend</span>
+                    <span class="chip fail2 dif" data-only="am">✕ 2 tests</span>
+                    <span class="shachip dif" data-only="ga dn">⌥ e10b4d8 <span class="ds"><span class="p">+54</span> <span class="m2">−9</span></span></span></div>
+                  <div class="tb2">
+                    <div data-only="dr"><div class="skl" style="width:64%"></div></div>
+                    <div data-only="am"><code class="inline">table.getState().sorting</code> resets when page data swaps — component-owned sort fights URL-owned page.</div>
+                    <div class="card dg" data-only="am" style="margin:0">
+                      <div class="chd errh">⚠ Proposed amendment · rev 5</div>
+                      <div class="crow2">
+                        <div class="dline new">+ task 4b · Hold sort in URL params beside ?page — one source of truth (matches assumption A1)</div>
+                        <div class="dline" style="background:var(--modified-bg);color:var(--modified)">~ task 4 · retry after 4b; assert sort survives page 2 → 3</div>
+                        <div style="font-size:11px;color:var(--muted)">Acceptance unchanged — a5 still holds. +1 commit.</div>
+                      </div>
+                      <div class="cbtns2"><button class="zbtn ok">Accept — insert 4b &amp; retry</button><button class="zbtn danger">Reject</button></div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+
+              <!-- t5 gate -->
+              <div class="railrow">
+                <div class="node gate" data-only="gd ex am ga"><i></i></div>
+                <div class="node commit" data-only="dn"><i></i></div>
+                <article class="task" data-cls="ga:gateT|dn:done">
+                  <div class="th">
+                    <span class="cb" data-only="dr li rv st re la gd ex am"></span>
+                    <span class="cb gatecb dg" data-only="ga">⏸</span><span class="cb ok2 dg" data-only="dn">✓</span>
+                    <span class="num">5</span><span class="t">Staging verify: 2k rows, deep links, CSV export unchanged</span>
+                    <span class="sysbadge s-test">Testing</span><span class="sysbadge gateb">GATE</span>
+                    <span class="chip ev dif" data-only="dn">4 evidence items ✓</span></div>
+                </article>
+              </div>
+
+              <div class="railfoot" data-only="gd ex am ga dn">
+                <span>▼ develop</span>
+                <span class="up2" id="footahead">↑1 ahead</span>
+                <span class="dif" data-only="dn" style="color:var(--kw)">· ⑂ PR #318</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ============ SPEC LENS ============ -->
+          <div class="lensview" id="lens-spec" style="display:none">
+            <div class="sechead">Acceptance criteria
+              <span data-only="ex">· 1/6</span><span data-only="am">· 3/6</span><span data-only="ga">· 5/6</span><span data-only="dn">· 6/6</span><span class="line"></span></div>
+            <ul class="acc">
+              <li><span class="cb" data-cls="ex:ok2|am:ok2|ga:ok2|dn:ok2"><span data-only="ex am ga dn">✓</span></span><span><span class="when">WHEN</span> the loader receives page+pageSize <span class="shall">IT SHALL</span> return that slice with total count <span class="tkref">LED-212#1</span><span class="ev2" data-only="ex am ga dn">5 tests · 3f81c2a</span></span></li>
+              <li><span class="cb" data-cls="am:ok2|ga:ok2|dn:ok2"><span data-only="am ga dn">✓</span></span><span><span class="when">WHEN</span> page is out of range <span class="shall">IT SHALL</span> clamp to the last valid page <span class="ev2" data-only="am ga dn">6 tests · b7d94ee</span></span></li>
+              <li><span class="cb" data-cls="am:ok2|ga:ok2|dn:ok2"><span data-only="am ga dn">✓</span></span><span><span class="when">WHEN</span> the table renders <span class="shall">THE FOOTER SHALL</span> show "x–y of total" with Prev/Next <span class="tkref">LED-212#2</span><span class="ev2" data-only="am ga dn">4 tests · a52f7c1</span></span></li>
+              <li><span class="cb" data-cls="ga:ok2|dn:ok2"><span data-only="ga dn">✓</span></span><span><span class="when">WHEN</span> the user changes page <span class="shall">THE URL SHALL</span> carry ?page and reloads restore it <span class="tkref">LED-212#3</span><span class="ev2" data-only="ga dn">e2e · deep-link ✓</span></span></li>
+              <li><span class="cb" data-cls="ga:ok2|dn:ok2"><span data-only="ga dn">✓</span></span><span><span class="when">WHEN</span> sort or filter is active <span class="shall">IT SHALL</span> persist across page changes <span class="ev2" data-only="ga dn">e10b4d8 · after 4b</span></span></li>
+              <li><span class="cb" data-cls="dn:ok2"><span data-only="dn">✓</span></span><span><span class="when">WHEN</span> the CSV export runs <span class="shall">IT SHALL</span> receive the full unpaginated set, unchanged <span class="tkref">LED-212#4</span><span class="ev2" data-only="dn">byte-diff ✓ · gate</span></span></li>
+            </ul>
+            <div class="sechead" style="margin-top:14px">Open questions &amp; assumptions <span class="line"></span></div>
+            <div class="preview"><div class="plabel">A1 · assumed — URL is the source of truth (?page=N)</div>
+              <div style="font-size:11.5px;color:var(--muted)">Stated during intake · tagged blocks: t3, a4 · <span data-only="dr li">unconfirmed — will ⚠ at Approve</span><span class="dif" data-only="rv st re la ex am ga dn" style="color:var(--success)">✓ confirmed by a1 option B (rev 3)</span></div></div>
+          </div>
+
+          <!-- ============ DESIGN LENS ============ -->
+          <div class="lensview" id="lens-design" style="display:none">
+            <div class="sechead">Contract <span class="line"></span></div>
+            <div class="preview" style="margin-bottom:10px"><div class="plabel">◈ GET /invoices loader</div>
+              <div class="contract">
+                <div class="crw"><span class="in">(no params)</span><span class="arr">→</span><span class="out">all rows · legacy + CSV export</span></div>
+                <div class="crw"><span class="in">?page=2&amp;pageSize=25</span><span class="arr">→</span><span class="out">rows 26–50 + total</span></div>
+                <div class="crw"><span class="in">?page=999</span><span class="arr">→</span><span class="out warn3">clamp to last</span></div>
+                <div class="crw"><span class="in">?pageSize=500</span><span class="arr">→</span><span class="out warn3">clamp to 100</span></div>
+              </div></div>
+            <div class="sechead">Decisions &amp; risks <span class="line"></span></div>
+            <div style="font-size:12px;color:var(--muted);line-height:1.6">
+              <b style="color:var(--text)">Offset over cursor</b> — admin users jump pages; insert-drift acceptable, clamping covers deletes.<br>
+              <b style="color:var(--text)">URL owns page + sort</b> (rev 5) — one source of truth; back-button and deep links free.<br>
+              <b style="color:var(--deleted)">Risk:</b> CSV export shares the loader → no-param path frozen, byte-diff verified at the gate.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PLAN PANEL -->
+      <section class="planpanel" id="planpanel">
+        <div class="ppl-head">
+          <span class="ti"><span class="sdot" id="ppdot"></span> Plan · LED-212</span>
+          <span class="syncrcpt" id="syncr">agent synced rev 4 · just now</span>
+          <span class="ppl-acts">
+            <button class="zbtn" data-only="gd" disabled>⏸ holding at guard</button>
+          <button class="zbtn" data-only="ex">⏸ Pause</button>
+            <button class="zbtn primary" data-only="gd">Record input</button>
+            <button class="zbtn ok" data-only="am">Accept amendment</button>
+            <button class="zbtn ok" data-only="ga">✓ Approve gate</button>
+            <button class="zbtn danger">Stop</button>
+            <button class="zbtn" id="closepanel" style="border:none">✕</button></span>
+        </div>
+        <div class="ppl-body">
+          <div class="pipe">
+            <div class="piperow" data-cls="gd:gateR"><span class="spin df" data-only="gd"></span><span class="cb ok2 dg" data-only="ex am ga dn">✓</span><span class="lb">1 · query + count</span><span class="mini" data-only="gd" style="color:var(--modified)">✋ guard s3</span><span class="mini" data-only="ex am ga dn">3f81c2a</span></div>
+            <div class="piperow" data-cls="ex:act2"><span class="cb" data-only="gd"></span><span class="spin df" data-only="ex"></span><span class="cb ok2 dg" data-only="am ga dn">✓</span><span class="lb">2 · loader params</span><span class="mini" data-only="ex">running</span><span class="mini" data-only="am ga dn">b7d94ee</span></div>
+            <div class="piperow"><span class="cb" data-only="gd ex"></span><span class="cb ok2 dg" data-only="am ga dn">✓</span><span class="lb">3 · footer + URL</span><span class="mini" data-only="am ga dn">a52f7c1</span></div>
+            <div class="piperow" data-only="ga dn"><span class="cb ok2">✓</span><span class="lb">4b · sort in URL</span><span class="mini">◆ 9c3e771</span></div>
+            <div class="piperow" data-cls="am:failR"><span class="cb" data-only="gd ex"></span><span class="cb fail dg" data-only="am">✕</span><span class="cb ok2 dg" data-only="ga dn">✓</span><span class="lb">4 · preserve sort/filter</span><span class="mini" data-only="am" style="color:var(--deleted)">failed</span></div>
+            <div class="piperow" data-cls="ga:gateR"><span class="cb" data-only="gd ex am"></span><span class="cb gatecb dg" data-only="ga">⏸</span><span class="cb ok2 dg" data-only="dn">✓</span><span class="lb">5 · staging verify</span><span class="mini" style="color:var(--modified)">GATE</span></div>
+          </div>
+          <div class="livecol">
+            <div data-only="gd" class="dg" style="gap:4px">
+              <div class="lc-h" style="color:var(--modified)">✋ t1 · holding at guarded step 3</div>
+              <div class="arow ok"><span class="tl">guard</span> s2 approval — approved 09:41 · migrate dev ✓</div>
+              <div class="arow"><span class="tl">guard</span> s3 input — verify migration locally</div>
+              <div class="arow"><span class="tl">hook</span> code edits blocked until input recorded</div>
+              <div class="arow"><span class="tl">note</span> state persists — close Zed, verify, come back</div>
+            </div>
+            <div data-only="ex" class="dg" style="gap:4px">
+              <div class="lc-h"><span class="spin" style="width:11px;height:11px"></span> Task 2 · live</div>
+              <div class="arow ok"><span class="tl">plan</span> plan_get → rev 4 · t2 in_progress</div>
+              <div class="arow ok"><span class="tl">edit</span> <a href="#">app/routes/invoices/route.tsx</a> +12</div>
+              <div class="arow ok"><span class="tl">edit</span> invoices.types.ts +4 (declared · rehearsal)</div>
+              <div class="arow live"><span class="fdot"></span><span class="tl">run</span> vitest route.test.tsx…</div>
+            </div>
+            <div data-only="am" class="dg" style="gap:4px">
+              <div class="lc-h" style="color:var(--deleted)">✕ t4 failed · amendment rev 5</div>
+              <div class="arow bad"><span class="tl">run</span> vitest — sort resets page 2→3 (2 failed)</div>
+              <div class="arow"><span class="tl">cause</span> component sort vs URL page — two owners</div>
+              <div class="arow"><span class="tl">fix</span> +4b sort→URL · retry 4 · awaiting you</div>
+            </div>
+            <div data-only="ga" class="dg" style="gap:4px">
+              <div class="lc-h" style="color:var(--modified)">◆ Gate t5 + ticket drift</div>
+              <div class="arow ok"><span class="tl">ev</span> 4/4 staging checks green</div>
+              <div class="arow"><span class="tl">drift</span> LED-212 AC#2: page size 25 → 50 (rev 6 staged)</div>
+              <div class="arow"><span class="tl">next</span> apply rev 6 → approve gate → done</div>
+            </div>
+          </div>
+        </div>
+      </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <button class="sb-i">🗨</button><button class="sb-i">⎇</button><button class="sb-i">✕ 0 ▲ 0</button>
+    <button class="sb-i sb-plan" id="sbtext"></button>
+    <span class="sb-right"><span class="sb-i">TypeScript</span><button class="sb-i">❯_</button><button class="sb-i" style="color:var(--accent)">✳</button></span>
+  </div>
+</div>
+</div>
+
+<script>
+const ORDER=['in','qa','dr','li','rv','st','re','la','gd','ex','am','ga','dn'];
+const CAPS={
+ in:"<b>1 · Questions — one at a time.</b> You typed <span class='kbd'>plan LED-212</span>. The agent asks sequentially (progress dots: 1 of 2), Q2 waits queued and dimmed. On Q1 you've <b>picked Server-side</b>, which revealed the optional <b>context field</b> — you're typing a heads-up about the customer-page embed. Confirm advances to Q2; every question also has an escape chip ('Why do you ask?'), and 'Draft now' skips the rest onto stated defaults. <span class='act'>You'd do:</span> Confirm — next ⏎.",
+ qa:"<b>2 · Answers recorded.</b> Both questions done — compact cards now show <b>where each answer landed</b>: Q1 → scope + criteria a1/a2, and <b>your optional context became real plan material</b> (risk r2 + a verify step in task 3 for the customer-page embed). Q2 → Design decision d1 with rationale. A1 flipped from <i>assumed</i> to <i>confirmed</i> via one chat line. Answers + context persist in plan.json, so they survive sessions and the agent can't 'forget' them. Drafting kicks off immediately.",
+ dr:"<b>3 · Draft.</b> The plan tab streams in — Spec first (your answers became criteria), Design contract + footer previews, Tasks 4/5. Watch the <b>ticket card's coverage meter</b> fill as ticket ACs map to plan criteria (2/4 so far). Check the Spec/Design lenses mid-draft — it's readable the whole time.",
+ li:"<b>4 · Lint.</b> Before you review, policy rules ran: two findings auto-fixed (t4's missing test step; ticket AC#4 'export unaffected' was uncovered → new criterion a6 + a gate check). One needs a human: <code>InvoiceTable.tsx</code> doesn't exist — typo or new file? Coverage now 4/4. <span class='act'>You'd do:</span> 'It's InvoicesTable.tsx — fix'.",
+ rv:"<b>5 · Review.</b> Three feedback items, three verbs: a ⚑ <b>blocker comment</b> on t2 with the export route's code attached as evidence (c1), a <b>suggested edit</b> capping pageSize at 100 (s1, tracked change on the contract), and <b>alternatives</b> on who owns page state (a1 — option B selected). Batch reads 3; Approve is gated by the blocker. <span class='act'>You'd do:</span> Send for revision · 3.",
+ st:"<b>6 · Staged revision.</b> Rev 3 arrives as a <b>pending diff</b> — plan stays at rev 2. Two hunks applied, one awaiting you. And c1 got a <b>partial pushback</b>: back-compat done, but the agent argues clamp-over-404 with cited evidence (deletion drift, no 404 handling in the table). Your call: Change anyway / Keep as planned. <span class='act'>You'd do:</span> Keep as planned → Apply remaining hunk → Approve.",
+ re:"<b>7 · Rehearse.</b> Approved at rev 4; rehearsal traced all 5 tasks without executing. One mismatch: t2 will also touch <code>invoices.types.ts</code> (loader return type) — not declared. Launch stays disabled until you add it or ignore. <span class='act'>You'd do:</span> ＋ Add file to t2.",
+ la:"<b>8 · Launch.</b> Everything green: lint passed, coverage 4/4, rehearsal resolved. The ExitPlanMode prompt offers launch modes; the branch strip appears — <code>led-212-invoices-pagination ← develop</code>, running in your <b>main tree</b> (no ⌂ badge: it's the only active plan, worktree mode is auto). <span class='act'>You'd do:</span> ▶ Launch — approve edits as I go.",
+ gd:"<b>9 · Step guard.</b> Execution launched — and immediately shows the <b>step-level safety system</b>. Task 1's steps carry guard badges (visible since review): step 2 was an <b>⛨ approval guard</b> on the DB migration — its receipt shows you approved at 09:41 and migrate ran. Step 3 is an <b>✋ input guard</b>, pulsing now: verify the migration on your local DB and record what you saw. The inline field takes your EXPLAIN output; it's stored as evidence on criterion a1. The hook <b>blocks the agent</b> from proceeding until recorded — this isn't a polite pause. <span class='act'>You'd do:</span> paste the query plan → Record &amp; continue ⏎.",
+ ex:"<b>10 · Execute.</b> The panel opens with the pipeline + live activity; the plan shows the <b>commit rail</b> forming — t1's node carries 3f81c2a with diffstat and 5-test evidence; t2 spins with the types file edit (declared, thanks to rehearsal). Note the <b>sync receipt</b> in the panel header. Acceptance auto-checks in Spec (1/6).",
+ am:"<b>11 · Amend.</b> t4 fails honestly: TanStack resets sort when page data swaps — two state owners fighting. Instead of hacking, the agent proposes <b>amendment rev 5</b>: add t4b (sort → URL params, consistent with assumption A1) and retry t4. Failure ladder is armed: a second failed amendment would escalate. <span class='act'>You'd do:</span> Accept — insert 4b &amp; retry.",
+ ga:"<b>12 · Gate + ticket drift.</b> Tasks 1–4b done (see the ◆ amendment node branching on the rail). The gate presents 4 evidence items — including the <b>CSV export byte-diff</b> your c1 demanded. And the gate's ticket resync caught <b>drift</b>: @pm-sarah changed AC#2 (page size 25→50); coverage flags it and the fix is staged as rev 6. <span class='act'>You'd do:</span> Apply rev 6 → ✓ Approve &amp; finish.",
+ dn:"<b>13 · Done.</b> 41 minutes, 5 commits, 6/6 acceptance, ticket coverage 4/4 verified — and PR #318 already open with the plan as its body, CODEOWNERS reviewing. The distiller noticed your 3rd back-compat-defaults request (provenance chips) and offers a standing rule. Ticket transitioned + commented. <span class='act'>You'd do:</span> Save rule → Open PR ↗."
+};
+const CFG={
+ in:{tab:'editor',panel:false,pill:['◆ Plan · 2 questions — need you','c-warn'],dot:'warn',sub:'Claude Agent · asking',tok:'3.8k',br:'⎇ develop'},
+ qa:{tab:'editor',panel:false,pill:['◆ Plan · intake ✓ — drafting','c-muted'],dot:'run',sub:'Claude Agent · answers recorded',tok:'4.6k',br:'⎇ develop'},
+ dr:{tab:'plan',panel:false,pill:['◆ Plan · drafting…','c-muted'],dot:'run',sub:'Claude Agent · drafting',tok:'9.1k',br:'⎇ develop'},
+ li:{tab:'plan',panel:false,pill:['◆ Plan · lint 1 open','c-warn'],dot:'warn',sub:'Claude Agent · lint findings',tok:'11.4k',br:'⎇ develop'},
+ rv:{tab:'plan',panel:false,pill:['◆ Plan · review · 3💬 ⚑','c-warn'],dot:'warn',sub:'Claude Agent · awaiting review',tok:'15.0k',br:'⎇ develop'},
+ st:{tab:'plan',panel:false,pill:['◆ Plan · rev 3 staged · pushback','c-warn'],dot:'warn',sub:'Claude Agent · revision staged',tok:'17.8k',br:'⎇ develop'},
+ re:{tab:'plan',panel:false,pill:['◆ Plan · rehearsed · 1 mismatch','c-warn'],dot:'warn',sub:'Claude Agent · rehearsal',tok:'19.2k',br:'⎇ develop'},
+ la:{tab:'plan',panel:false,pill:['◆ Plan · approved — launch?','c-ok'],dot:'run',sub:'Claude Agent · ready to launch',tok:'19.6k',br:'⎇ develop'},
+ gd:{tab:'plan',panel:true,pill:['◆ Plan · guarded step — input needed','c-warn'],dot:'warn',sub:'Claude Agent · holding at guard',tok:'21.7k',br:'⎇ led-212-invoices-pagination'},
+ ex:{tab:'plan',panel:true,pill:['◆ Plan 2/5 · acc 1/6','c-info'],dot:'run',sub:'Claude Agent · plan 2/5',tok:'24.3k',br:'⎇ led-212-invoices-pagination'},
+ am:{tab:'plan',panel:true,pill:['◆ Plan · t4 failed — needs you','c-err'],dot:'err',sub:'Claude Agent · amendment proposed',tok:'28.9k',br:'⎇ led-212-invoices-pagination'},
+ ga:{tab:'plan',panel:true,pill:['◆ Plan · GATE + drift — 2 need you','c-warn'],dot:'warn',sub:'Claude Agent · gate — needs you',tok:'32.5k',br:'⎇ led-212-invoices-pagination'},
+ dn:{tab:'plan',panel:false,pill:['◆ Plan · done ✓ · PR #318','c-ok'],dot:'done',sub:'Claude Agent · done · 41m',tok:'34.8k',br:'⎇ led-212-invoices-pagination'}
+};
+const steps=[...document.querySelectorAll('.stp')];
+const tabE=document.getElementById('tab-editor'), tabP=document.getElementById('tab-plan');
+const vE=document.getElementById('view-editor'), vP=document.getElementById('view-plan');
+const panel=document.getElementById('planpanel');
+function showView(w){const p=w==='plan';vE.classList.toggle('on',!p);vP.classList.toggle('on',p);
+  tabE.classList.toggle('active',!p);tabP.classList.toggle('active',p);}
+tabE.addEventListener('click',()=>showView('editor'));
+tabP.addEventListener('click',()=>showView('plan'));
+document.getElementById('closepanel').addEventListener('click',()=>panel.classList.remove('on'));
+
+function setState(s){
+  document.body.dataset.state=s;const c=CFG[s];
+  steps.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.s===s)));
+  document.getElementById('cap').innerHTML=CAPS[s];
+  showView(c.tab); panel.classList.toggle('on',c.panel);
+  const sb=document.getElementById('sbtext'); sb.textContent=c.pill[0];
+  sb.className='sb-i sb-plan '+c.pill[1]+(s==='ga'?' pulse2':'');
+  document.getElementById('tdot').className='sdot '+c.dot;
+  document.getElementById('ppdot').className='sdot '+c.dot;
+  document.getElementById('tsub').textContent=c.sub;
+  document.getElementById('tok').textContent=c.tok;
+  document.getElementById('tbranch').textContent=c.br;
+  document.getElementById('syncr').textContent=({gd:'agent synced rev 4 · holding at guard s3',ex:'agent synced rev 4 · just now',am:'agent synced rev 4 · 6m — rev 5 pending your call',ga:'agent synced rev 5 · 1m'})[s]||'';
+  const ahead={la:'↑0',gd:'↑0',ex:'↑1',am:'↑3',ga:'↑5',dn:'↑5'}[s]||'↑0';
+  document.getElementById('ahead').textContent=ahead;
+  const fa=document.getElementById('footahead'); if(fa) fa.textContent=({gd:'↑0 · migration applied locally',ex:'↑1 ahead',am:'↑3 ahead',ga:'↑5 ahead',dn:'↑5 ahead'})[s]||'';
+  const dd=document.getElementById('dirtydot'), dt=document.getElementById('dirtytxt');
+  if(s==='gd'){dd.style.background='var(--modified)';dt.textContent='holding at guard';}
+  else if(s==='ex'){dd.style.background='var(--modified)';dt.textContent='agent editing';}
+  else if(s==='am'){dd.style.background='var(--deleted)';dt.textContent='t4 failed';}
+  else {dd.style.background='var(--success)';dt.textContent='clean';}
+  const td=document.getElementById('tabdot');
+  td.style.background={dr:'var(--placeholder)',li:'var(--modified)',rv:'var(--modified)',st:'var(--modified)',re:'var(--success)',la:'var(--success)',gd:'var(--modified)',ex:'var(--accent)',am:'var(--deleted)',ga:'var(--modified)',dn:'var(--success)'}[s]||'var(--accent)';
+  td.style.animation=(s==='ex'||s==='dr'||s==='gd')?'pl 1.4s ease-in-out infinite':'none';
+  document.querySelectorAll('[data-cls]').forEach(el=>{
+    el.classList.remove('done','activeT','failed','gateT','act2','failR','gateR','ok2');
+    (el.getAttribute('data-cls')||'').split('|').forEach(pair=>{const [st,cls]=pair.split(':');if(st===s)el.classList.add(cls);});
+  });
+  document.querySelectorAll('[data-ncls]').forEach(el=>{
+    el.classList.remove('spinn','commit');
+    (el.getAttribute('data-ncls')||'').split('|').forEach(pair=>{const [st,cls]=pair.split(':');if(st===s)el.classList.add(cls);});
+  });
+  // rail on/off; node fill states are explicit via data-ncls / static classes
+  document.getElementById('railwrap').classList.toggle('norail', !['gd','ex','am','ga','dn'].includes(s));
+}
+document.getElementById('prev').addEventListener('click',()=>{const i=ORDER.indexOf(document.body.dataset.state);setState(ORDER[Math.max(0,i-1)]);});
+document.getElementById('next').addEventListener('click',()=>{const i=ORDER.indexOf(document.body.dataset.state);setState(ORDER[Math.min(ORDER.length-1,i+1)]);});
+steps.forEach(b=>b.addEventListener('click',()=>setState(b.dataset.s)));
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight')document.getElementById('next').click();
+  if(e.key==='ArrowLeft')document.getElementById('prev').click();
+});
+// lens
+const lbtns=[...document.querySelectorAll('.lens button')];
+lbtns.forEach(b=>b.addEventListener('click',()=>{
+  lbtns.forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  ['spec','design','tasks'].forEach(l=>{const el=document.getElementById('lens-'+l);
+    el.style.display=(b.dataset.l===l)?'block':'none';});
+}));
+// question chips: pick within their group
+document.querySelectorAll('.optchips').forEach(g=>g.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
+  g.querySelectorAll('button').forEach(x=>x.classList.remove('picked'));b.classList.add('picked');})));
+setState('in');
+</script>
+</body>
+</html>
