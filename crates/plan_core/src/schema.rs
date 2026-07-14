@@ -17,6 +17,36 @@ use serde_json::Value;
 /// Free-form additional fields preserved verbatim for forward-compatibility.
 type Extra = BTreeMap<String, Value>;
 
+/// Bring a raw `plan.json` value up to [`crate::SCHEMA_VERSION`] before typed
+/// deserialization. A missing `schema_version` is treated as the current
+/// version (lenient, for hand-written plans); a newer version is rejected so we
+/// never silently mangle a document a future app wrote. Ordered migrations for
+/// older versions are applied here as the schema evolves.
+pub fn migrate(mut value: Value) -> anyhow::Result<Value> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("plan.json root must be a JSON object"))?;
+    let version = match object.get("schema_version") {
+        None => {
+            object.insert("schema_version".into(), Value::from(crate::SCHEMA_VERSION));
+            crate::SCHEMA_VERSION
+        }
+        Some(raw) => u32::try_from(
+            raw.as_u64()
+                .ok_or_else(|| anyhow::anyhow!("schema_version must be a non-negative integer"))?,
+        )
+        .map_err(|_| anyhow::anyhow!("schema_version is out of range"))?,
+    };
+    if version > crate::SCHEMA_VERSION {
+        anyhow::bail!(
+            "plan.json schema_version {version} is newer than supported {}; upgrade the app",
+            crate::SCHEMA_VERSION
+        );
+    }
+    // Future: apply ordered migrations for `version < SCHEMA_VERSION` here.
+    Ok(value)
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Plan {
     pub schema_version: u32,
