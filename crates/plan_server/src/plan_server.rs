@@ -20,12 +20,13 @@ use rmcp::{
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+pub mod hooks;
 pub mod tools;
 
 /// The directory holding `<id>.plan.json` files. Defaults to `.plans` under the
 /// server's working directory (the project root Claude Code runs in);
 /// `PLAN_PLANS_DIR` overrides it (used by tests and non-standard layouts).
-fn plans_dir() -> PathBuf {
+pub fn plans_dir() -> PathBuf {
     std::env::var_os("PLAN_PLANS_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
