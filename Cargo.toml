@@ -155,6 +155,7 @@ members = [
     "crates/picker",
     "crates/picker_preview",
     "crates/plan_core",
+    "crates/plan_server",
     "crates/plan_ui",
     "crates/platform_title_bar",
     "crates/prettier",
@@ -771,6 +772,7 @@ scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197
 schemars = { version = "1.0", features = ["indexmap2"] }
 seccompiler = "0.5"
 semver = { version = "1.0", features = ["serde"] }
+rmcp = { version = "2.2", features = ["server", "macros", "transport-io"] }
 serde = { version = "1.0.221", features = ["derive", "rc"] }
 serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
 serde_yaml_ng = "0.10"
