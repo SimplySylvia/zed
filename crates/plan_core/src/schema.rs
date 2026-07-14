@@ -9,10 +9,65 @@
 //! open-ended codes (op, system, severity, guard kind, …) stay `String` for
 //! forward-compatibility and are refined in later milestones as the UI needs them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+impl Plan {
+    /// Check referential integrity across the plan and return a list of
+    /// human-readable issues (empty when clean). These are warnings, not hard
+    /// errors: a plan with dangling references still loads so it can be
+    /// repaired. Policy lint (`.plans/policy.json` rules) is separate (M5).
+    pub fn validate(&self) -> Vec<String> {
+        let task_ids: BTreeSet<&str> = self.tasks.iter().map(|task| task.id.as_str()).collect();
+        let acceptance_ids: BTreeSet<&str> = self
+            .spec
+            .acceptance
+            .iter()
+            .map(|acceptance| acceptance.id.as_str())
+            .collect();
+
+        let mut issues = Vec::new();
+        for acceptance in &self.spec.acceptance {
+            for task in &acceptance.tasks {
+                if !task_ids.contains(task.as_str()) {
+                    issues.push(format!(
+                        "acceptance {} references unknown task {}",
+                        acceptance.id, task
+                    ));
+                }
+            }
+        }
+        for task in &self.tasks {
+            for dependency in &task.depends_on {
+                if !task_ids.contains(dependency.as_str()) {
+                    issues.push(format!(
+                        "task {} depends_on unknown task {}",
+                        task.id, dependency
+                    ));
+                }
+            }
+            for acceptance in &task.acceptance {
+                if !acceptance_ids.contains(acceptance.as_str()) {
+                    issues.push(format!(
+                        "task {} references unknown acceptance {}",
+                        task.id, acceptance
+                    ));
+                }
+            }
+        }
+        if let Some(executor) = &self.executor {
+            if executor.thread != self.thread {
+                issues.push(format!(
+                    "executor thread {} does not match plan thread {}",
+                    executor.thread, self.thread
+                ));
+            }
+        }
+        issues
+    }
+}
 
 /// Free-form additional fields preserved verbatim for forward-compatibility.
 type Extra = BTreeMap<String, Value>;
