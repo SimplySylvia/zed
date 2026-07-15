@@ -3,7 +3,7 @@
 **How to use:** point a fresh agent at this file (or paste the brief below). It's the kickoff
 for continuing the **Plan** feature. Kept current at the end of each session.
 
-_Last updated: after M6a (2026-07-15) — execution launch spine done. On branch `plan`._
+_Last updated: after M6b (2026-07-15) — gates + step guards done. On branch `plan`._
 
 ---
 
@@ -18,16 +18,19 @@ results, deferred backlog). Confirm you've read Part III + the milestone notes b
 proposing anything.
 
 ### Status
-M0–M4, **all of M5 (5a comments · 5b staged revisions · 5c lint)**, and **M6a (execution launch
-spine)** are **complete and visually verified**. A `plan_ui` fidelity pass + M6a UI follow-ups
-(mono metadata, pulse, pill hover/selected/shadow, panel open/close toggle, "Open as tab") are
-in too. Crates:
+M0–M4, **all of M5 (5a comments · 5b staged revisions · 5c lint)**, and **M6a (launch spine) +
+M6b (gates + step guards)** are **complete and visually verified**. A `plan_ui` fidelity pass +
+M6a UI follow-ups (mono metadata, pulse, pill hover/selected/shadow, panel open/close toggle,
+"Open as tab") are in too. Crates:
 - `plan_core` — schema / store / validate / **anchor** / **comments** / **rev** / **lint** /
-  **exec** (launch + executor lease).
+  **exec** (launch + lease + guard/gate lifecycle + `GuardPolicy`).
 - `plan_server` — Rust `rmcp` MCP server + Claude Code hooks; reuses `plan_core`. Review +
-  **`plan_propose_revision`** + **`plan_lint`** + **`plan_launch`** tools; PreToolUse edit gate.
+  **`plan_propose_revision`** + **`plan_lint`** + **`plan_launch`** + guard/gate tools
+  (`plan_hold_guard`/`plan_clear_guard`/`plan_approve_gate`); **PreToolUse gate** (no-plan-edit +
+  guard/gate holds + `require_on` command-guards).
 - `plan_ui` — Plan tab + status pill + dock panel + review UI + staged-revision cards + Approve
-  gating + Lint action + **▶ Launch + active-task spotlight**.
+  gating + Lint action + ▶ Launch + active-task spotlight + **guard badges/clear + gate card +
+  needs-you chrome**.
 - `plan-agent/` — planning skill (lifecycle + per-task loop + enforcement) + hooks + settings.
 
 Upstream footprint is only the M0 registration lines + the M4 pill line — all tracked in
@@ -48,19 +51,17 @@ docs are silent/contradictory. All `plan_ui` work is governed by the `plan-ui-de
 (PRD §14); flag v1 pulls instead of building them.
 
 ### Next up
-M6 is split (a/b/c). **M6a done.** Next:
-- **M6b — Gates + step guards** (F4.5/F4.5b): hold at a GATE task / guarded step via the
-  PreToolUse hook, ⛨ approve / ✋ input capture + evidence, cleared-guard receipts, gate evidence
-  card, policy force-guards (`guards.require_on`), needs-you chrome (guard badge pulse, pill/panel
-  flip). The hook-heavy slice.
+M6 is split (a/b/c). **M6a + M6b done.** Next:
 - **M6c — Amendments + failure ladder + control** (F4.7/F11.4/F5.1/F5.6/F11.1): amendments as
-  staged diffs **reusing `plan_core::rev`**, failure ladder + escalation card,
-  pause/resume/stop + kill, interrupted-task recovery, the Stop loop guard, lease enforcement +
-  reclaim (F11.3b).
+  staged diffs **reusing `plan_core::rev`** (a failed task → a proposed plan change, never
+  improvisation), failure ladder + escalation card (2 amendments on one task → manual takeover /
+  descope+waiver / guide me), pause/resume/stop + kill (toolbar/panel/pill), interrupted-task
+  recovery (F11.1), the Stop loop guard, and lease enforcement + reclaim (F11.3b — the M6a lease
+  is set but not yet enforced/reclaimed).
 - Then **M7** git · **M8** tickets (incl. `ticket-coverage` lint, wired as a no-op in
   `plan_core::lint`) · **M9** settings + hardening (git-format lint lands with M7's commit hook).
 
-**Start by writing the M6b plan for the user's sign-off — no code until approved.**
+**Start by writing the M6c plan for the user's sign-off — no code until approved.**
 
 ### M6a seams to honor (documented, non-blocking)
 - **Git → M7:** Launch doesn't create the branch/worktree yet; it launches in the current tree.

@@ -1,8 +1,9 @@
 # M6b · Execution — gates + step guards — milestone note
 
-**Status:** code complete; `plan_core` + `plan_server` + `plan_ui` + full `zed` build green.
-**§13 visual verification under One Dark is the developer gate.** Slice b of M6; M6c (amendments
-+ failure ladder + control) follows.
+**Status:** COMPLETE. `plan_core` + `plan_server` + `plan_ui` + full `zed` build green;
+**§13 visual verification under One Dark confirmed by the developer (2026-07-15)** — a holding
+guard pulses with needs-you chrome, the clear affordance clears it to a receipt (verified
+against the saved plan.json), and the gate card approves. Slice b of M6; M6c follows.
 
 **Feature IDs:** F4.5 (GATE tasks pause + evidence), F4.5b (step guards — ⛨ approve / ✋ input,
 hold, PreToolUse-enforced, cleared-guard receipts, policy force-guards), F6.3 (PreToolUse
@@ -74,7 +75,7 @@ chrome. **No upstream files touched** — `FORK_DIFF.md` unchanged.
 - [x] Tab: holding guard pulses + clear affordance → receipt + evidence; GATE card + Approve gate;
       needs-you pill/dot.
 - [x] Builds green; clippy clean; pure logic test-first; `docs/milestones/M6b.md`; FORK_DIFF unchanged.
-- [ ] **§13 visual verification under One Dark** — developer gate (protocol above).
+- [x] **§13 visual verification under One Dark** — confirmed by the developer (2026-07-15).
 
 ## Next: M6c — Amendments + failure ladder + control
 Amendments as staged diffs **reusing `plan_core::rev`** (F4.7), the failure ladder + escalation
