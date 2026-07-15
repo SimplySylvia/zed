@@ -19,6 +19,7 @@ use workspace::{
     dock::{DockPosition, Panel, PanelEvent},
 };
 
+pub mod following;
 pub mod plan_view;
 
 actions!(plan_panel, [ToggleFocus]);

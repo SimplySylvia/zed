@@ -5,8 +5,9 @@
 //!
 //! All colors resolve through `cx.theme()` per docs/design/plan-ui-compliance.md.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+use crate::following;
 use agent_ui::{AgentPanel, AgentPanelEvent};
 use anyhow::Result;
 use project::Project;
@@ -14,7 +15,7 @@ use gpui::{
     AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, Hsla, IntoElement,
     ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window, actions, px,
 };
-use plan_core::{Plan, Status, Step, Task, TaskStatus, store};
+use plan_core::{Plan, Status, Step, Task, TaskStatus};
 use ui::prelude::*;
 use ui::{Button, Indicator};
 use workspace::{
@@ -72,13 +73,7 @@ impl PlanView {
             workspace.activate_item(&existing, true, true, window, cx);
             return;
         }
-        let plans_dir = workspace
-            .project()
-            .read(cx)
-            .visible_worktrees(cx)
-            .next()
-            .map(|worktree| worktree.read(cx).abs_path().join(".plans"))
-            .unwrap_or_else(|| PathBuf::from(".plans"));
+        let plans_dir = following::plans_dir(workspace, cx);
         let handle = cx.entity().downgrade();
         let view = cx.new(|cx| PlanView {
             focus_handle: cx.focus_handle(),
@@ -96,11 +91,8 @@ impl PlanView {
     /// Re-point the tab at the active thread's plan (F1.1). The binding key is
     /// the ACP session id (matches `plan.thread`), read from the active thread.
     fn retarget(&mut self, agent_panel: Entity<AgentPanel>, cx: &mut Context<Self>) {
-        let session = agent_panel
-            .read(cx)
-            .active_agent_thread(cx)
-            .map(|thread| thread.read(cx).session_id().0.to_string());
-        self.plan = resolve_plan(&self.plans_dir, session.as_deref());
+        let session = following::active_session(cx, &agent_panel);
+        self.plan = following::resolve_plan(&self.plans_dir, session.as_deref());
         self.thread_session = session;
         if let Some(lens) = self.plan.as_ref().map(|plan| default_lens(&plan.status)) {
             self.lens = lens;
@@ -112,7 +104,7 @@ impl PlanView {
     /// the "watch the agent draft live" demo. M3 polls at 500ms (the §7 fallback);
     /// a proper fs watch is a later refinement.
     fn reload(&mut self, cx: &mut Context<Self>) {
-        let fresh = resolve_plan(&self.plans_dir, self.thread_session.as_deref());
+        let fresh = following::resolve_plan(&self.plans_dir, self.thread_session.as_deref());
         if fresh != self.plan {
             self.plan = fresh;
             cx.notify();
@@ -223,7 +215,7 @@ impl SerializableItem for PlanView {
     }
 
     fn deserialize(
-        project: Entity<Project>,
+        _project: Entity<Project>,
         workspace: WeakEntity<Workspace>,
         _workspace_id: workspace::WorkspaceId,
         _item_id: workspace::ItemId,
@@ -234,11 +226,9 @@ impl SerializableItem for PlanView {
         // active thread (F1.1 — the singleton follows the active thread anyway).
         window.spawn(cx, async move |cx| {
             cx.update(|_window, cx| {
-                let plans_dir = project
-                    .read(cx)
-                    .visible_worktrees(cx)
-                    .next()
-                    .map(|worktree| worktree.read(cx).abs_path().join(".plans"))
+                let plans_dir = workspace
+                    .upgrade()
+                    .map(|ws| following::plans_dir(ws.read(cx), cx))
                     .unwrap_or_else(|| PathBuf::from(".plans"));
                 cx.new(|cx| PlanView {
                     focus_handle: cx.focus_handle(),
@@ -461,21 +451,6 @@ fn chip(text: impl Into<SharedString>, color: Hsla) -> impl IntoElement {
         .text_color(color)
         .text_size(px(10.))
         .child(text.into())
-}
-
-/// Resolve which plan the tab should show: the thread's plan (by ACP session
-/// id) if one matches, else — as a convenience before the thread binding is
-/// stamped — the sole plan in `.plans/` when there is exactly one.
-fn resolve_plan(plans_dir: &Path, session: Option<&str>) -> Option<Plan> {
-    if let Some(session) = session {
-        if let Some(plan) = store::find_by_thread(plans_dir, session) {
-            return Some(plan);
-        }
-    }
-    match store::list_plan_ids(plans_dir).as_slice() {
-        [only] => store::load(plans_dir, only).ok(),
-        _ => None,
-    }
 }
 
 /// The default lens for a status (F12.1: default lens follows status).
