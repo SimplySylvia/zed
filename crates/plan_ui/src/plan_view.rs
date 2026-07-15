@@ -17,7 +17,7 @@ use gpui::{
 };
 use plan_core::{
     Anchor, Comment, HistoryEntry, Hunk, Plan, Status, Step, Task, TaskStatus, anchor, comments,
-    lint, rev, store,
+    exec, lint, rev, store,
 };
 use ui::prelude::*;
 use ui::{Button, Indicator, Tooltip};
@@ -331,6 +331,12 @@ impl PlanView {
                 .on_click(cx.listener(|this, _, _window, cx| this.apply_all(cx)))
                 .into_any_element();
         }
+        if plan.status == Status::Approved {
+            // ▶ Launch (§9 matrix). Rehearsal-mismatch gating is v1 (F9.4).
+            return Button::new("launch", "▶ Launch")
+                .on_click(cx.listener(|this, _, _window, cx| this.launch(cx)))
+                .into_any_element();
+        }
         if matches!(
             plan.status,
             Status::Drafting | Status::InReview | Status::Revising
@@ -387,6 +393,8 @@ impl PlanView {
         };
         let (glyph, glyph_color) = status_glyph(task);
         let done = task.status == TaskStatus::Done;
+        // Active-task spotlight (F4.3): the in-progress card is info-tinted + bordered.
+        let active = task.status == TaskStatus::InProgress;
         let guarded = task.steps.iter().filter(|step| step.guard.is_some()).count();
 
         let comment_rows: Vec<_> = self
@@ -418,7 +426,11 @@ impl PlanView {
             .rounded_md()
             .border_1()
             .border_color(border)
-            .bg(colors.panel_background)
+            .bg(if active {
+                status.info.opacity(0.08)
+            } else {
+                colors.panel_background
+            })
             .child(
                 h_flex()
                     .gap_2()
@@ -584,6 +596,28 @@ impl PlanView {
         let policy = lint::Policy::load(&self.plans_dir);
         let findings = lint::lint(&fresh, &policy, self.plans_dir.parent());
         if lint::reconcile(&mut fresh, &findings) && store::save(&self.plans_dir, &fresh).is_ok() {
+            self.reload(cx);
+        }
+    }
+
+    /// Launch the plan (F4.1): approved → executing + take the lease, via plan_core
+    /// (the UI writes plan.json directly). Uses the followed thread's session id as
+    /// the lease holder, falling back to the plan's owning thread. Git branch setup
+    /// (F10.2) is M7.
+    fn launch(&mut self, cx: &mut Context<Self>) {
+        let Some(plan) = self.plan.as_ref() else {
+            return;
+        };
+        let id = plan.id.clone();
+        let thread = self
+            .thread_session
+            .clone()
+            .unwrap_or_else(|| plan.thread.clone());
+        let Ok(mut fresh) = store::load(&self.plans_dir, &id) else {
+            return;
+        };
+        if exec::launch(&mut fresh, &thread).is_ok() && store::save(&self.plans_dir, &fresh).is_ok()
+        {
             self.reload(cx);
         }
     }
