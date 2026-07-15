@@ -12,15 +12,16 @@ use agent_ui::{AgentPanel, AgentPanelEvent};
 use anyhow::Result;
 use project::Project;
 use gpui::{
-    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, Hsla, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window, actions, px,
+    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, Hsla, Div,
+    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window,
+    actions, px,
 };
 use plan_core::{
     Anchor, Comment, HistoryEntry, Hunk, Plan, Status, Step, Task, TaskStatus, anchor, comments,
     exec, lint, rev, store,
 };
 use ui::prelude::*;
-use ui::{Button, Indicator, Tooltip};
+use ui::{Button, ButtonStyle, Indicator, TintColor, Tooltip};
 use workspace::{
     Workspace,
     item::{Item, ItemEvent, SerializableItem, TabContentParams},
@@ -373,23 +374,23 @@ impl PlanView {
     /// tooltip while blockers are open). Launch/Pause/gate primaries are M6.
     fn render_primary(&self, plan: &Plan, blockers: usize, cx: &Context<Self>) -> AnyElement {
         if plan.pending_revision.is_some() {
-            return Button::new("apply-all", "Apply all")
+            return primary_button("apply-all", "Apply all")
                 .on_click(cx.listener(|this, _, _window, cx| this.apply_all(cx)))
                 .into_any_element();
         }
         if plan.status == Status::Approved {
             // ▶ Launch (§9 matrix). Rehearsal-mismatch gating is v1 (F9.4).
-            return Button::new("launch", "▶ Launch")
+            return primary_button("launch", "▶ Launch")
                 .on_click(cx.listener(|this, _, _window, cx| this.launch(cx)))
                 .into_any_element();
         }
         if plan.status == Status::Executing {
-            return Button::new("pause", "⏸ Pause")
+            return primary_button("pause", "⏸ Pause")
                 .on_click(cx.listener(|this, _, _window, cx| this.pause_plan(cx)))
                 .into_any_element();
         }
         if plan.status == Status::Paused {
-            return Button::new("resume", "▶ Resume")
+            return primary_button("resume", "▶ Resume")
                 .on_click(cx.listener(|this, _, _window, cx| this.resume_plan(cx)))
                 .into_any_element();
         }
@@ -398,7 +399,7 @@ impl PlanView {
             Status::Drafting | Status::InReview | Status::Revising
         ) {
             let enabled = approve_enabled(plan);
-            let mut approve = Button::new("approve", "Approve")
+            let mut approve = primary_button("approve", "Approve")
                 .disabled(!enabled)
                 .on_click(cx.listener(|this, _, _window, cx| this.approve(cx)));
             if !enabled {
@@ -605,7 +606,7 @@ impl PlanView {
                         .border_1()
                         .border_color(modified)
                         .child(Label::new(prompt).size(LabelSize::Small))
-                        .child(Button::new(button_id, label).on_click(cx.listener(
+                        .child(primary_button(button_id, label).on_click(cx.listener(
                             move |this, _, _window, cx| this.clear_step_guard(&task_id, &step_id, cx),
                         )))
                         .into_any_element(),
@@ -865,49 +866,31 @@ impl PlanView {
             .tasks
             .iter()
             .find(|task| exec::needs_escalation(plan, &task.id))?;
-        let colors = cx.theme().colors();
         let status = cx.theme().status();
-        let title = task.title.clone().unwrap_or_else(|| task.id.clone());
+        let title: SharedString = task.title.clone().unwrap_or_else(|| task.id.clone()).into();
         let manual_id = task.id.clone();
         let redo_id = task.id.clone();
         Some(
-            v_flex()
-                .mx_3()
-                .mt_2()
-                .rounded_md()
-                .border_1()
-                .border_color(status.deleted)
-                .bg(colors.panel_background)
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .px_2()
-                        .py_1()
-                        .items_center()
-                        .bg(status.deleted_background)
-                        .child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(status.deleted)
-                                .child("ESCALATION — 2 AMENDMENTS"),
-                        )
-                        .child(Label::new(title).size(LabelSize::Small).color(Color::Muted)),
-                )
-                .child(
-                    h_flex()
-                        .px_2()
-                        .py_1()
-                        .gap_2()
-                        .child(Button::new("escalate-manual", "Take over manually").on_click(
-                            cx.listener(move |this, _, _window, cx| {
-                                this.recover_task(&manual_id, "manual", cx)
-                            }),
-                        ))
-                        .child(Button::new("escalate-redo", "Retry").on_click(cx.listener(
-                            move |this, _, _window, cx| this.recover_task(&redo_id, "redo", cx),
-                        ))),
-                )
-                .into_any_element(),
+            card_shell(
+                "ESCALATION — 2 AMENDMENTS",
+                status.deleted,
+                status.deleted_background,
+                Some(title),
+                None,
+                cx,
+            )
+            .child(
+                card_row(cx)
+                    .child(primary_button("escalate-manual", "Take over manually").on_click(
+                        cx.listener(move |this, _, _window, cx| {
+                            this.recover_task(&manual_id, "manual", cx)
+                        }),
+                    ))
+                    .child(Button::new("escalate-redo", "Retry").on_click(cx.listener(
+                        move |this, _, _window, cx| this.recover_task(&redo_id, "redo", cx),
+                    ))),
+            )
+            .into_any_element(),
         )
     }
 
@@ -916,57 +899,39 @@ impl PlanView {
         if hold.kind != "gate" {
             return None;
         }
-        let colors = cx.theme().colors();
         let status = cx.theme().status();
-        let title = plan
+        let title: SharedString = plan
             .tasks
             .iter()
             .find(|task| task.id == hold.task)
             .and_then(|task| task.title.clone())
-            .unwrap_or_else(|| hold.task.clone());
+            .unwrap_or_else(|| hold.task.clone())
+            .into();
         let task_id = hold.task;
         Some(
-            v_flex()
-                .mx_3()
-                .mt_2()
-                .rounded_md()
-                .border_1()
-                .border_color(colors.border)
-                .bg(colors.panel_background)
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .px_2()
-                        .py_1()
-                        .items_center()
-                        .bg(status.modified.opacity(0.15))
-                        .child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(status.modified)
-                                .child("GATE — NEEDS SIGN-OFF"),
-                        )
-                        .child(Label::new(title).size(LabelSize::Small).color(Color::Muted)),
-                )
-                .child(
-                    h_flex().px_2().py_1().child(
-                        Button::new("approve-gate", "✓ Approve gate").on_click(cx.listener(
-                            move |this, _, _window, cx| this.approve_gate_task(&task_id, cx),
-                        )),
-                    ),
-                )
-                .into_any_element(),
+            card_shell(
+                "GATE — NEEDS SIGN-OFF",
+                status.modified,
+                status.modified_background,
+                Some(title),
+                None,
+                cx,
+            )
+            .child(
+                card_row(cx).child(
+                    primary_button("approve-gate", "✓ Approve gate").on_click(cx.listener(
+                        move |this, _, _window, cx| this.approve_gate_task(&task_id, cx),
+                    )),
+                ),
+            )
+            .into_any_element(),
         )
     }
 
     fn render_staged_revision(&self, plan: &Plan, cx: &Context<Self>) -> Option<AnyElement> {
         let pending = plan.pending_revision.as_ref()?;
-        let colors = cx.theme().colors();
         let status = cx.theme().status();
-        let rev_note = pending
-            .rev
-            .map(|rev| format!("rev {rev}"))
-            .unwrap_or_default();
+        let rev_note = pending.rev.map(|rev| format!("rev {rev}"));
         // Amendments (F4.7) reuse this card with an err header instead of info.
         let is_amendment =
             pending.extra.get("kind").and_then(|kind| kind.as_str()) == Some("amendment");
@@ -986,41 +951,16 @@ impl PlanView {
             )
         };
         Some(
-            v_flex()
-                .mx_3()
-                .mt_2()
-                .rounded_md()
-                .border_1()
-                .border_color(colors.border)
-                .bg(colors.panel_background)
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .px_2()
-                        .py_1()
-                        .items_center()
-                        .bg(band_bg)
-                        .child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(band_color)
-                                .child(band_label),
-                        )
-                        .child(
-                            Label::new(band_note)
-                                .size(LabelSize::Small)
-                                .color(Color::Muted),
-                        )
-                        .child(div().flex_1())
-                        .child(
-                            Label::new(rev_note)
-                                .buffer_font(cx)
-                                .size(LabelSize::XSmall)
-                                .color(Color::Placeholder),
-                        ),
-                )
-                .children(pending.hunks.iter().map(|hunk| self.render_hunk(hunk, cx)))
-                .into_any_element(),
+            card_shell(
+                band_label,
+                band_color,
+                band_bg,
+                Some(band_note.into()),
+                rev_note.map(SharedString::from),
+                cx,
+            )
+            .children(pending.hunks.iter().map(|hunk| self.render_hunk(hunk, cx)))
+            .into_any_element(),
         )
     }
 
@@ -1044,12 +984,10 @@ impl PlanView {
             _ => h_flex()
                 .gap_1()
                 .child(
-                    Button::new(SharedString::from(format!("apply-{id}")), "Apply").on_click(
-                        cx.listener({
-                            let id = id.clone();
-                            move |this, _, _window, cx| this.apply_hunk(&id, cx)
-                        }),
-                    ),
+                    primary_button(format!("apply-{id}"), "Apply").on_click(cx.listener({
+                        let id = id.clone();
+                        move |this, _, _window, cx| this.apply_hunk(&id, cx)
+                    })),
                 )
                 .child(
                     Button::new(SharedString::from(format!("reject-{id}")), "Reject").on_click(
@@ -1061,8 +999,8 @@ impl PlanView {
 
         v_flex()
             .gap_0p5()
-            .px_2()
-            .py_1()
+            .px_3()
+            .py_1p5()
             .border_t_1()
             .border_color(colors.border_variant)
             .child(
@@ -1286,6 +1224,72 @@ fn open_blocker_count(plan: &Plan) -> usize {
 /// Approve is enabled only at zero open blockers (F3.6).
 fn approve_enabled(plan: &Plan) -> bool {
     open_blocker_count(plan) == 0
+}
+
+/// The shared card chassis (compliance §6 / demo `.card`): 8px radius, panel bg,
+/// a clipped colored caps header band (bold, kind-tinted) with an optional subtitle
+/// and right-aligned mono note. Callers chain body rows via [`card_row`].
+fn card_shell(
+    label: &str,
+    header_color: Hsla,
+    header_bg: Hsla,
+    subtitle: Option<SharedString>,
+    note: Option<SharedString>,
+    cx: &App,
+) -> Div {
+    let colors = cx.theme().colors();
+    v_flex()
+        .mx_3()
+        .mt_2()
+        .rounded_lg()
+        .overflow_hidden()
+        .border_1()
+        .border_color(colors.border_variant)
+        .bg(colors.panel_background)
+        .child(
+            h_flex()
+                .gap_2()
+                .items_center()
+                .px_3()
+                .py_1p5()
+                .bg(header_bg)
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(header_color)
+                        .child(label.to_string()),
+                )
+                .when_some(subtitle, |header, subtitle| {
+                    header.child(Label::new(subtitle).size(LabelSize::Small).color(Color::Muted))
+                })
+                .child(div().flex_1())
+                .when_some(note, |header, note| {
+                    header.child(
+                        Label::new(note)
+                            .buffer_font(cx)
+                            .size(LabelSize::XSmall)
+                            .color(Color::Placeholder),
+                    )
+                }),
+        )
+}
+
+/// A card body row (demo `.crow2`): top hairline + consistent padding.
+fn card_row(cx: &App) -> Div {
+    h_flex()
+        .gap_2()
+        .items_center()
+        .px_3()
+        .py_1p5()
+        .border_t_1()
+        .border_color(cx.theme().colors().border_variant)
+}
+
+/// An emphasized (accent-tinted) button for a card/toolbar primary action
+/// (design-spec §3.1 `.primary`).
+fn primary_button(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Button {
+    Button::new(id.into(), label.into()).style(ButtonStyle::Tinted(TintColor::Accent))
 }
 
 /// A small bordered pill whose text inherits the given color.
