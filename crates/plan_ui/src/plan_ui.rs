@@ -20,7 +20,7 @@ use gpui::{
 };
 use plan_core::{Plan, Status, Task, TaskStatus};
 use ui::prelude::*;
-use ui::{IconButton, IconSize, Indicator, Tooltip};
+use ui::{CommonAnimationExt, Icon, IconButton, IconSize, Indicator, Tooltip};
 use workspace::{
     Workspace,
     dock::{DockPosition, Panel, PanelEvent},
@@ -275,14 +275,14 @@ impl PlanPanel {
                             .flex_1()
                             .gap_1()
                             .child(section_label("PIPELINE"))
-                            .child(panel_pipeline(plan)),
+                            .child(panel_pipeline(plan, cx)),
                     )
                     .child(
                         v_flex()
                             .flex_1()
                             .gap_1()
                             .child(section_label("ACTIVITY"))
-                            .child(panel_activity(&self.activity)),
+                            .child(panel_activity(&self.activity, cx)),
                     ),
             )
     }
@@ -311,7 +311,8 @@ impl Render for PlanPanel {
 /// One row of the live activity column, kept theme-agnostic (color at render).
 #[derive(Clone, PartialEq)]
 struct ActivityRow {
-    text: String,
+    verb: String,
+    detail: String,
     kind: ActivityKind,
 }
 
@@ -323,7 +324,8 @@ enum ActivityKind {
     Other,
 }
 
-/// Map a thread entry to an activity row (tool calls only, for M4).
+/// Map a thread entry to an activity row (tool calls only). The verb column is the
+/// tool kind (edit/execute/read/…); the detail is the tool name (§4 live column).
 fn activity_row(entry: &AgentThreadEntry) -> Option<ActivityRow> {
     let AgentThreadEntry::ToolCall(call) = entry else {
         return None;
@@ -334,43 +336,110 @@ fn activity_row(entry: &AgentThreadEntry) -> Option<ActivityRow> {
         ToolCallStatus::InProgress => ActivityKind::Running,
         _ => ActivityKind::Other,
     };
-    let text = call
+    let verb = format!("{:?}", call.kind).to_lowercase();
+    let detail = call
         .tool_name
         .as_ref()
         .map(|name| name.to_string())
         .unwrap_or_else(|| "tool".to_string());
-    Some(ActivityRow { text, kind })
+    Some(ActivityRow { verb, detail, kind })
 }
 
-fn panel_pipeline(plan: &Plan) -> impl IntoElement {
-    v_flex().gap_0p5().children(plan.tasks.iter().map(|task| {
-        let (glyph, color) = panel_task_glyph(task);
+/// Pipeline column (§4): task rows with a status glyph/spinner, a label, a
+/// right-aligned mono note (sha / running / GATE / guard), and a state tint.
+fn panel_pipeline(plan: &Plan, cx: &App) -> impl IntoElement {
+    let status = cx.theme().status();
+    v_flex().gap_0p5().children(plan.tasks.iter().map(move |task| {
+        let glyph: AnyElement = if task.status == TaskStatus::InProgress {
+            Icon::new(IconName::ArrowCircle)
+                .size(IconSize::XSmall)
+                .color(Color::Accent)
+                .with_rotate_animation(2)
+                .into_any_element()
+        } else {
+            let (glyph, color) = panel_task_glyph(task);
+            Label::new(glyph).size(LabelSize::Small).color(color).into_any_element()
+        };
+        let guarded = task.steps.iter().any(|step| {
+            step.guard.as_ref().and_then(|guard| guard.state.as_deref()) == Some("holding")
+        });
+        let note = task
+            .artifacts
+            .sha
+            .as_ref()
+            .map(|sha| format!("⌥ {}", sha.chars().take(7).collect::<String>()))
+            .or_else(|| task.gate.then(|| "GATE".to_string()))
+            .or_else(|| guarded.then(|| "✋ guard".to_string()))
+            .or_else(|| (task.status == TaskStatus::InProgress).then(|| "running".to_string()));
+        // Row tint by state (§4): active info · failed error · gate/guard amber.
+        let tint = if task.status == TaskStatus::InProgress {
+            Some((status.info_background, status.info))
+        } else if task.status == TaskStatus::Failed {
+            Some((status.deleted_background, status.deleted))
+        } else if task.gate || guarded {
+            Some((status.modified_background, status.modified))
+        } else {
+            None
+        };
         h_flex()
             .gap_2()
-            .child(Label::new(glyph).color(color))
+            .items_center()
+            .px_1()
+            .py_0p5()
+            .rounded_md()
+            .when_some(tint, |row, (bg, border)| row.bg(bg).border_1().border_color(border))
+            .child(glyph)
             .child(
-                Label::new(task.title.clone().unwrap_or_else(|| task.id.clone()))
-                    .size(LabelSize::Small)
-                    .color(if task.status == TaskStatus::Done {
-                        Color::Muted
-                    } else {
-                        Color::Default
-                    }),
+                div().flex_1().min_w_0().child(
+                    Label::new(task.title.clone().unwrap_or_else(|| task.id.clone()))
+                        .size(LabelSize::Small)
+                        .color(if task.status == TaskStatus::Done {
+                            Color::Muted
+                        } else {
+                            Color::Default
+                        }),
+                ),
             )
+            .when_some(note, |row, note| {
+                row.child(
+                    Label::new(note)
+                        .buffer_font(cx)
+                        .size(LabelSize::XSmall)
+                        .color(Color::Placeholder),
+                )
+            })
     }))
 }
 
-fn panel_activity(rows: &[ActivityRow]) -> impl IntoElement {
-    v_flex().gap_0p5().children(rows.iter().map(|row| {
+/// Live activity column (§4): mono rows with a teal verb column + detail; failures
+/// red, completions green, live rows default.
+fn panel_activity(rows: &[ActivityRow], cx: &App) -> impl IntoElement {
+    let verb_color = cx
+        .theme()
+        .syntax()
+        .style_for_name("type")
+        .and_then(|style| style.color)
+        .unwrap_or(cx.theme().colors().text_accent);
+    v_flex().gap_0p5().children(rows.iter().map(move |row| {
         let color = match row.kind {
             ActivityKind::Done => Color::Created,
             ActivityKind::Failed => Color::Error,
-            ActivityKind::Running => Color::Accent,
-            ActivityKind::Other => Color::Muted,
+            ActivityKind::Running => Color::Default,
+            ActivityKind::Other => Color::Custom(verb_color),
         };
-        Label::new(row.text.clone())
-            .size(LabelSize::Small)
-            .color(color)
+        h_flex()
+            .gap_2()
+            .child(
+                div()
+                    .min_w(px(34.))
+                    .child(Label::new(row.verb.clone()).buffer_font(cx).size(LabelSize::XSmall).color(color)),
+            )
+            .child(
+                Label::new(row.detail.clone())
+                    .buffer_font(cx)
+                    .size(LabelSize::XSmall)
+                    .color(Color::Muted),
+            )
     }))
 }
 

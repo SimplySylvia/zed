@@ -432,22 +432,54 @@ impl PlanView {
             .gap_2()
             .p_3()
             .child(sechead("TASKS", cx))
-            .children(plan.tasks.iter().enumerate().map(|(index, task)| {
+            .child(self.render_task_list(plan, cx))
+    }
+
+    /// The task list, with the commit rail (§9.1) from launch onward: one
+    /// continuous spine drawn behind per-task node gutters.
+    fn render_task_list(&self, plan: &Plan, cx: &Context<Self>) -> AnyElement {
+        let show_rail = matches!(
+            plan.status,
+            Status::Executing | Status::Paused | Status::Gate | Status::Amending
+        );
+        let rows: Vec<AnyElement> = plan
+            .tasks
+            .iter()
+            .enumerate()
+            .map(|(index, task)| {
                 let card = self.render_task_card(index, task, cx);
-                // Commit rail (§9.1): a node per task on a left spine, from launch on.
-                if matches!(
-                    plan.status,
-                    Status::Executing | Status::Paused | Status::Gate | Status::Amending
-                ) {
+                if show_rail {
                     h_flex()
-                        .items_stretch()
-                        .child(rail_cell(task, cx))
+                        .items_start()
+                        .gap_2()
+                        .child(rail_gutter(task, cx))
                         .child(div().flex_1().child(card))
                         .into_any_element()
                 } else {
                     card.into_any_element()
                 }
-            }))
+            })
+            .collect();
+        let list = v_flex().gap_2().children(rows);
+        if show_rail {
+            // The continuous spine: one full-height 2px line behind the node gutters
+            // (centered under the 22px gutter, so the nodes mask it).
+            div()
+                .relative()
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(11.))
+                        .top_0()
+                        .h_full()
+                        .w(px(2.))
+                        .bg(cx.theme().colors().border),
+                )
+                .child(list)
+                .into_any_element()
+        } else {
+            list.into_any_element()
+        }
     }
 
     /// Task card (compliance §7 / design-spec §3.5) with a flag affordance and its
@@ -1200,47 +1232,42 @@ fn render_checkbox(task: &Task, cx: &App) -> AnyElement {
     }
 }
 
-/// A commit-rail cell (§9.1): a fixed-width left column with a status node on top
-/// of a vertical spine that fills the row, forming a continuous timeline.
-fn rail_cell(task: &Task, cx: &App) -> impl IntoElement {
+/// A commit-rail gutter (§9.1): a fixed-width left column holding just the status
+/// node, aligned to the task-card header. The continuous spine is drawn once,
+/// behind these gutters, by [`PlanView::render_tasks`].
+fn rail_gutter(task: &Task, cx: &App) -> impl IntoElement {
     v_flex()
         .w(px(22.))
         .flex_none()
         .items_center()
         .pt_2()
-        .gap_1()
         .child(rail_node(task, cx))
-        .child(
-            div()
-                .w(px(2.))
-                .flex_1()
-                .bg(cx.theme().colors().border_variant),
-        )
 }
 
 /// A commit-rail node colored by task state (§8): hollow pending · accent
-/// committed/running · success done · error failed · amber gate.
+/// running · success done · error failed · amber gate. Every node has a fill so it
+/// masks the spine passing behind it.
 fn rail_node(task: &Task, cx: &App) -> AnyElement {
     let colors = cx.theme().colors();
     let status = cx.theme().status();
-    let circle = |border: Hsla, fill: Option<Hsla>| {
+    let editor = colors.editor_background;
+    let circle = |border: Hsla, fill: Hsla| {
         h_flex()
             .size(px(11.))
             .flex_none()
             .rounded_full()
             .border_1()
             .border_color(border)
-            .when_some(fill, |node, fill| node.bg(fill))
+            .bg(fill)
     };
     if task.gate && task.status == TaskStatus::Pending {
-        return circle(status.modified, None).into_any_element();
+        return circle(status.modified, editor).into_any_element();
     }
     match task.status {
-        TaskStatus::InProgress => circle(colors.text_accent, Some(colors.text_accent))
-            .into_any_element(),
-        TaskStatus::Done => circle(status.created, Some(status.created)).into_any_element(),
-        TaskStatus::Failed => circle(status.deleted, Some(status.deleted)).into_any_element(),
-        _ => circle(colors.border, None).into_any_element(),
+        TaskStatus::InProgress => circle(colors.text_accent, colors.text_accent).into_any_element(),
+        TaskStatus::Done => circle(status.created, status.created).into_any_element(),
+        TaskStatus::Failed => circle(status.deleted, status.deleted).into_any_element(),
+        _ => circle(colors.border, editor).into_any_element(),
     }
 }
 
