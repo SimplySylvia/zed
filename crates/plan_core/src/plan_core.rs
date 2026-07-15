@@ -6,6 +6,7 @@
 //! later milestones. See docs/PRD.md Appendix A and docs/milestones/.
 
 pub mod anchor;
+pub mod comments;
 pub mod schema;
 pub mod store;
 

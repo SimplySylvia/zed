@@ -86,6 +86,25 @@ fn find_block_with_quote(plan: &Plan, quote: &str) -> Option<String> {
         .map(|a| a.id.clone())
 }
 
+/// Set a block's text by id (step or task); used when applying a suggestion.
+/// Returns false if the block doesn't resolve.
+pub fn set_block_text(plan: &mut Plan, block: &str, text: &str) -> bool {
+    if let Some((task_id, step_id)) = block.split_once('.') {
+        return plan
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .and_then(|task| task.steps.iter_mut().find(|step| step.id == step_id))
+            .map(|step| step.text = Some(text.to_string()))
+            .is_some();
+    }
+    plan.tasks
+        .iter_mut()
+        .find(|task| task.id == block)
+        .map(|task| task.title = Some(text.to_string()))
+        .is_some()
+}
+
 fn acceptance_text(acceptance: &crate::schema::Acceptance) -> String {
     format!(
         "{} {}",
