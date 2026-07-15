@@ -56,7 +56,7 @@ impl Severity {
 /// The `lint` block of `.plans/policy.json` (Appendix B), with defaults applied
 /// for any rule the file omits. The file only *tightens* — an absent file uses
 /// all defaults.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Policy {
     pub every_task_has_tests: Severity,
     pub criteria_link_tasks: Severity,
@@ -64,6 +64,12 @@ pub struct Policy {
     pub prod_requires_gate: Severity,
     pub max_files_per_task: (Severity, usize),
     pub ticket_coverage: Severity,
+    /// Draft-time git commit-subject check (F10.1). Defaults to `warn` — the hard
+    /// block is the commit-time hook (see `plan_server::hooks`).
+    pub git_commit_format: Severity,
+    /// The git policy the commit-format rule checks against (regexes come from
+    /// the `git` block, not `lint`).
+    pub git: crate::git::GitPolicy,
 }
 
 impl Default for Policy {
@@ -76,6 +82,8 @@ impl Default for Policy {
             prod_requires_gate: Severity::Blocker,
             max_files_per_task: (Severity::Warn, 8),
             ticket_coverage: Severity::Blocker,
+            git_commit_format: Severity::Warn,
+            git: crate::git::GitPolicy::default(),
         }
     }
 }
@@ -130,6 +138,12 @@ impl Policy {
                 limit = parsed as usize;
             }
             policy.max_files_per_task = (sev, limit);
+        }
+        if let Some(severity) = severity("git-commit-format") {
+            policy.git_commit_format = severity;
+        }
+        if let Some(git) = value.get("git") {
+            policy.git = crate::git::GitPolicy::from_json(git);
         }
         policy
     }
@@ -218,11 +232,40 @@ pub fn lint(plan: &Plan, policy: &Policy, repo_root: Option<&Path>) -> Vec<Findi
         }
     }
 
+    if policy.git_commit_format != Severity::Off {
+        for task in &plan.tasks {
+            // Gate tasks pause (no commit); manual tasks are the developer's.
+            if task.gate || task.manual {
+                continue;
+            }
+            let ticketed = task
+                .ticket
+                .as_deref()
+                .or_else(|| crate::git::plan_ticket_key(plan))
+                .is_some();
+            let ok = task
+                .commit_message
+                .as_deref()
+                .is_some_and(|subject| crate::git::commit_subject_ok(&policy.git, subject, ticketed));
+            if !ok {
+                let detail = match &task.commit_message {
+                    Some(subject) => format!("commit subject `{subject}` does not match the git format"),
+                    None => "task declares no commit_message".to_string(),
+                };
+                findings.push(Finding {
+                    rule_id: "git-commit-format",
+                    severity: policy.git_commit_format,
+                    message: format!("task {} — {detail}", task.id),
+                    block: Some(task.id.clone()),
+                });
+            }
+        }
+    }
+
     // Deferred (recorded no-ops — the engine hosts them cheaply when inputs land):
     // - `prod-requires-gate`: the schema carries no "prod" signal on a task yet
-    //   (M5c open q3); revisit with guards/git in M6/M7.
+    //   (M5c open q3); revisit with a prod signal later.
     // - `ticket-coverage`: needs `tickets[]`/`ticket_ac` mapping (M8).
-    // - git-format rules (F10.1): enforced at the commit-time hook (M7).
 
     findings
 }

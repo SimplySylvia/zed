@@ -102,7 +102,8 @@ fn off_severity_suppresses_a_rule() {
     let plan = plan(serde_json::json!({
         "schema_version": 1, "id": "P", "title": "t", "status": "in_review", "rev": 1,
         "thread": "a", "spec": { "goal": "g" },
-        "tasks": [{ "id": "t1", "system": "backend", "acceptance": [] }]
+        "tasks": [{ "id": "t1", "system": "backend", "acceptance": [],
+                    "commit_message": "implement the backend task" }]
     }));
     let policy = Policy {
         every_task_has_tests: Severity::Off,
@@ -161,6 +162,55 @@ fn policy_json_overrides_defaults() {
     assert_eq!(policy.criteria_link_tasks, Severity::Warn);
 }
 
+#[test]
+fn git_commit_format_fires_on_malformed_subject() {
+    // A ticketed plan whose task subject lacks the `[ABC-123]:` prefix.
+    let plan = plan(serde_json::json!({
+        "schema_version": 1, "id": "P", "title": "t", "status": "in_review", "rev": 1,
+        "thread": "a", "tickets": [{ "source": "jira", "key": "LED-1" }],
+        "spec": { "goal": "g" },
+        "tasks": [{ "id": "t1", "ticket": "LED-1", "acceptance": ["a1"], "commit_message": "wip" }]
+    }));
+    assert_eq!(ids(&lint::lint(&plan, &Policy::default(), None), "git-commit-format"), ["t1"]);
+}
+
+#[test]
+fn git_commit_format_fires_on_missing_commit_message() {
+    let plan = plan(serde_json::json!({
+        "schema_version": 1, "id": "P", "title": "t", "status": "in_review", "rev": 1,
+        "thread": "a", "tickets": [{ "source": "jira", "key": "LED-1" }],
+        "spec": { "goal": "g" },
+        "tasks": [{ "id": "t1", "ticket": "LED-1", "acceptance": ["a1"] }]
+    }));
+    assert_eq!(ids(&lint::lint(&plan, &Policy::default(), None), "git-commit-format"), ["t1"]);
+}
+
+#[test]
+fn git_commit_format_exempts_gate_tasks() {
+    let plan = plan(serde_json::json!({
+        "schema_version": 1, "id": "P", "title": "t", "status": "in_review", "rev": 1,
+        "thread": "a", "tickets": [{ "source": "jira", "key": "LED-1" }],
+        "spec": { "goal": "g" },
+        "tasks": [{ "id": "t1", "gate": true }]
+    }));
+    assert!(ids(&lint::lint(&plan, &Policy::default(), None), "git-commit-format").is_empty());
+}
+
+#[test]
+fn git_commit_format_off_suppresses_the_rule() {
+    let plan = plan(serde_json::json!({
+        "schema_version": 1, "id": "P", "title": "t", "status": "in_review", "rev": 1,
+        "thread": "a", "tickets": [{ "source": "jira", "key": "LED-1" }],
+        "spec": { "goal": "g" },
+        "tasks": [{ "id": "t1", "ticket": "LED-1", "acceptance": ["a1"], "commit_message": "wip" }]
+    }));
+    let policy = Policy {
+        git_commit_format: Severity::Off,
+        ..Policy::default()
+    };
+    assert!(lint::lint(&plan, &policy, None).is_empty());
+}
+
 fn plan_lint_comments(plan: &Plan) -> Vec<&plan_core::Comment> {
     plan.comments
         .iter()
@@ -169,10 +219,13 @@ fn plan_lint_comments(plan: &Plan) -> Vec<&plan_core::Comment> {
 }
 
 fn unlinked_task_plan() -> Plan {
+    // Trips only every-task-has-tests (acceptance empty); a valid commit_message
+    // keeps git-commit-format quiet so the reconcile tests see exactly one finding.
     plan(serde_json::json!({
         "schema_version": 1, "id": "P", "title": "t", "status": "in_review", "rev": 1,
         "thread": "a", "spec": { "goal": "g" },
-        "tasks": [{ "id": "t1", "system": "backend", "acceptance": [] }]
+        "tasks": [{ "id": "t1", "system": "backend", "acceptance": [],
+                    "commit_message": "implement the backend task" }]
     }))
 }
 
