@@ -431,6 +431,7 @@ impl PlanView {
         v_flex()
             .gap_2()
             .p_3()
+            .child(sechead("TASKS", cx))
             .children(plan.tasks.iter().map(|task| self.render_task_card(task, cx)))
     }
 
@@ -1312,71 +1313,180 @@ fn default_lens(status: &Status) -> Lens {
     }
 }
 
-fn section(title: &'static str) -> impl IntoElement {
-    Label::new(title).size(LabelSize::Small).color(Color::Muted)
+/// A section header (demo `.sechead`): caps label + trailing hairline.
+fn sechead(title: &str, cx: &App) -> impl IntoElement {
+    h_flex()
+        .gap_2()
+        .items_center()
+        .mt_2()
+        .child(
+            div()
+                .text_size(px(10.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(cx.theme().colors().text_placeholder)
+                .child(title.to_string()),
+        )
+        .child(div().h(px(1.)).flex_1().bg(cx.theme().colors().border_variant))
 }
 
 fn bullet(text: &str) -> impl IntoElement {
     Label::new(format!("• {text}")).size(LabelSize::Small)
 }
 
-fn render_spec(plan: &Plan) -> impl IntoElement {
+/// A syntax highlight color by name (teal `type`, purple `keyword`), falling back
+/// to the accent — the design's WHEN/SHALL/ticket identity colors.
+fn syntax_color(cx: &App, name: &str) -> Hsla {
+    cx.theme()
+        .syntax()
+        .style_for_name(name)
+        .and_then(|style| style.color)
+        .unwrap_or(cx.theme().colors().text_accent)
+}
+
+fn render_spec(plan: &Plan, cx: &App) -> impl IntoElement {
     let spec = &plan.spec;
+    let colors = cx.theme().colors();
+    let when_color = syntax_color(cx, "type");
+    let shall_color = syntax_color(cx, "keyword");
     v_flex()
         .p_3()
         .gap_2()
-        .child(section("GOAL"))
+        .child(sechead("GOAL", cx))
         .child(Label::new(spec.goal.clone()).size(LabelSize::Small))
         .when(!spec.scope.r#in.is_empty(), |column| {
             column
-                .child(section("IN SCOPE"))
+                .child(sechead("IN SCOPE", cx))
                 .children(spec.scope.r#in.iter().map(|item| bullet(item)))
         })
         .when(!spec.scope.out.is_empty(), |column| {
             column
-                .child(section("OUT OF SCOPE"))
+                .child(sechead("OUT OF SCOPE", cx))
                 .children(spec.scope.out.iter().map(|item| bullet(item)))
         })
         .when(!spec.acceptance.is_empty(), |column| {
-            column.child(section("ACCEPTANCE")).children(spec.acceptance.iter().map(
-                |acceptance| {
-                    Label::new(format!(
-                        "when {} — shall {}",
-                        acceptance.when.as_deref().unwrap_or(""),
-                        acceptance.shall.as_deref().unwrap_or("")
-                    ))
-                    .size(LabelSize::Small)
-                },
-            ))
+            column.child(sechead("ACCEPTANCE", cx)).children(
+                spec.acceptance.iter().map(|acceptance| {
+                    let (glyph, glyph_color) = if acceptance.done {
+                        ("✓", Color::Created)
+                    } else {
+                        ("○", Color::Placeholder)
+                    };
+                    let evidence = acceptance.evidence.first().map(|evidence| {
+                        format!(
+                            "{} {}",
+                            evidence.evidence_type.as_deref().unwrap_or("evidence"),
+                            evidence.reference.as_deref().unwrap_or_default()
+                        )
+                        .trim()
+                        .to_string()
+                    });
+                    h_flex()
+                        .gap_2()
+                        .items_start()
+                        .py_1()
+                        .border_b_1()
+                        .border_color(colors.border_variant)
+                        .child(Label::new(glyph).size(LabelSize::Small).color(glyph_color))
+                        .child(
+                            h_flex()
+                                .flex_1()
+                                .flex_wrap()
+                                .gap_1()
+                                .items_center()
+                                .child(
+                                    Label::new("WHEN")
+                                        .size(LabelSize::Small)
+                                        .color(Color::Custom(when_color)),
+                                )
+                                .child(
+                                    Label::new(acceptance.when.clone().unwrap_or_default())
+                                        .size(LabelSize::Small),
+                                )
+                                .child(
+                                    Label::new("SHALL")
+                                        .size(LabelSize::Small)
+                                        .color(Color::Custom(shall_color)),
+                                )
+                                .child(
+                                    Label::new(acceptance.shall.clone().unwrap_or_default())
+                                        .size(LabelSize::Small),
+                                )
+                                .when_some(acceptance.ticket_ac.clone(), |row, ticket| {
+                                    row.child(crate::mono_chip(ticket, shall_color, cx))
+                                })
+                                .when_some(evidence, |row, evidence| {
+                                    row.child(crate::mono_chip(evidence, colors.text_accent, cx))
+                                }),
+                        )
+                }),
+            )
         })
 }
 
-fn render_design(plan: &Plan) -> impl IntoElement {
+/// A dashed preview block (design-spec §3.8): `◈ label` + body rows. The full
+/// input→output grid / ui-states gallery as mini-buffers is deferred (v1).
+fn preview_block(label: &str, rows: Vec<String>, cx: &App) -> impl IntoElement {
+    let colors = cx.theme().colors();
+    v_flex()
+        .gap_1()
+        .p_2()
+        .rounded_md()
+        .border_1()
+        .border_dashed()
+        .border_color(colors.border)
+        .bg(colors.editor_background)
+        .child(
+            div()
+                .text_size(px(10.))
+                .text_color(syntax_color(cx, "type"))
+                .child(format!("◈ {label}")),
+        )
+        .children(rows.into_iter().map(|row| {
+            Label::new(row)
+                .buffer_font(cx)
+                .size(LabelSize::XSmall)
+                .color(Color::Muted)
+        }))
+}
+
+fn render_design(plan: &Plan, cx: &App) -> impl IntoElement {
     let design = &plan.design;
     v_flex()
         .p_3()
         .gap_2()
         .when(!design.contracts.is_empty(), |column| {
-            column.child(section("CONTRACTS")).children(
-                design
-                    .contracts
-                    .iter()
-                    .map(|contract| Label::new(contract.id.clone()).size(LabelSize::Small)),
+            column.child(sechead("CONTRACTS", cx)).children(
+                design.contracts.iter().map(|contract| {
+                    let rows = contract
+                        .rows
+                        .iter()
+                        .map(|row| {
+                            format!(
+                                "{} → {}",
+                                row.r#in.as_deref().unwrap_or_default(),
+                                row.out.as_deref().unwrap_or_default()
+                            )
+                        })
+                        .collect();
+                    preview_block(&contract.id, rows, cx)
+                }),
             )
         })
         .when(!design.decisions.is_empty(), |column| {
-            column.child(section("DECISIONS")).children(design.decisions.iter().map(|decision| {
-                Label::new(format!(
-                    "{} — {}",
-                    decision.text.as_deref().unwrap_or(""),
-                    decision.rationale.as_deref().unwrap_or("")
-                ))
-                .size(LabelSize::Small)
-            }))
+            column.child(sechead("DECISIONS", cx)).children(
+                design.decisions.iter().map(|decision| {
+                    Label::new(format!(
+                        "{} — {}",
+                        decision.text.as_deref().unwrap_or(""),
+                        decision.rationale.as_deref().unwrap_or("")
+                    ))
+                    .size(LabelSize::Small)
+                }),
+            )
         })
         .when(!design.risks.is_empty(), |column| {
             column
-                .child(section("RISKS"))
+                .child(sechead("RISKS", cx))
                 .children(design.risks.iter().map(|risk| bullet(risk)))
         })
 }
@@ -1401,8 +1511,8 @@ impl Render for PlanView {
                 .children(self.render_staged_revision(plan, cx))
                 .child(match self.lens {
                     Lens::Tasks => self.render_tasks(plan, cx).into_any_element(),
-                    Lens::Spec => render_spec(plan).into_any_element(),
-                    Lens::Design => render_design(plan).into_any_element(),
+                    Lens::Spec => render_spec(plan, cx).into_any_element(),
+                    Lens::Design => render_design(plan, cx).into_any_element(),
                 })
                 .into_any_element(),
         };
