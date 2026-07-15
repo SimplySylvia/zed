@@ -18,9 +18,12 @@ use gpui::{
     FocusHandle, Focusable, Hsla, IntoElement, Pixels, Render, SharedString, Subscription,
     WeakEntity, Window, actions, px, pulsating_between,
 };
-use plan_core::{Plan, Status, Task, TaskStatus};
+use plan_core::{Plan, Status, Task, TaskStatus, exec, store};
 use ui::prelude::*;
-use ui::{CommonAnimationExt, Icon, IconButton, IconSize, Indicator, Tooltip};
+use ui::{
+    Button, ButtonStyle, CommonAnimationExt, Icon, IconButton, IconSize, Indicator, TintColor,
+    Tooltip,
+};
 use workspace::{
     Workspace,
     dock::{DockPosition, Panel, PanelEvent},
@@ -219,6 +222,98 @@ impl Panel for PlanPanel {
 }
 
 impl PlanPanel {
+    /// Load the plan fresh, apply `mutate`, save, and refresh — the panel's direct
+    /// write path for its contextual actions (F5.1/F4.5).
+    fn mutate(&mut self, cx: &mut Context<Self>, mutate: impl FnOnce(&mut Plan) -> Result<()>) {
+        let Some(id) = self.follower.plan().map(|plan| plan.id.clone()) else {
+            return;
+        };
+        let dir = self.follower.plans_dir().to_path_buf();
+        let Ok(mut fresh) = store::load(&dir, &id) else {
+            return;
+        };
+        if mutate(&mut fresh).is_ok() && store::save(&dir, &fresh).is_ok() {
+            self.refresh(cx);
+        }
+    }
+
+    fn pause(&mut self, cx: &mut Context<Self>) {
+        self.mutate(cx, exec::pause);
+    }
+
+    fn resume(&mut self, cx: &mut Context<Self>) {
+        self.mutate(cx, exec::resume);
+    }
+
+    fn stop(&mut self, cx: &mut Context<Self>) {
+        self.mutate(cx, exec::stop);
+    }
+
+    fn approve_gate(&mut self, task: String, cx: &mut Context<Self>) {
+        self.mutate(cx, move |plan| exec::approve_gate(plan, &task));
+    }
+
+    fn clear_guard(&mut self, task: String, step: String, cx: &mut Context<Self>) {
+        self.mutate(cx, move |plan| exec::clear_guard(plan, &task, &step, None));
+    }
+
+    /// Contextual header actions (§4/§10): matches the state — Approve gate / Record
+    /// input while holding, else Pause/Resume, plus Stop while running.
+    fn panel_actions(&self, plan: &Plan, cx: &Context<Self>) -> Vec<AnyElement> {
+        let hold = exec::current_hold(plan);
+        let running = matches!(plan.status, Status::Executing | Status::Paused);
+        let mut actions: Vec<AnyElement> = Vec::new();
+        match &hold {
+            Some(hold) if hold.kind == "gate" => {
+                let task = hold.task.clone();
+                actions.push(
+                    Button::new("panel-approve-gate", "✓ Approve gate")
+                        .style(ButtonStyle::Tinted(TintColor::Accent))
+                        .on_click(cx.listener(move |this, _, _window, cx| {
+                            this.approve_gate(task.clone(), cx)
+                        }))
+                        .into_any_element(),
+                );
+            }
+            Some(hold) => {
+                let task = hold.task.clone();
+                let step = hold.step.clone().unwrap_or_default();
+                let label = if hold.kind == "input" {
+                    "Record input"
+                } else {
+                    "Approve to run"
+                };
+                actions.push(
+                    Button::new("panel-clear-guard", label)
+                        .style(ButtonStyle::Tinted(TintColor::Accent))
+                        .on_click(cx.listener(move |this, _, _window, cx| {
+                            this.clear_guard(task.clone(), step.clone(), cx)
+                        }))
+                        .into_any_element(),
+                );
+            }
+            None if plan.status == Status::Executing => actions.push(
+                Button::new("panel-pause", "⏸ Pause")
+                    .on_click(cx.listener(|this, _, _window, cx| this.pause(cx)))
+                    .into_any_element(),
+            ),
+            None if plan.status == Status::Paused => actions.push(
+                Button::new("panel-resume", "▶ Resume")
+                    .on_click(cx.listener(|this, _, _window, cx| this.resume(cx)))
+                    .into_any_element(),
+            ),
+            None => {}
+        }
+        if running || hold.is_some() {
+            actions.push(
+                Button::new("panel-stop", "⏹ Stop")
+                    .on_click(cx.listener(|this, _, _window, cx| this.stop(cx)))
+                    .into_any_element(),
+            );
+        }
+        actions
+    }
+
     /// Open the full Plan document tab (F1.3 "Open as tab").
     fn open_plan_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(workspace) = self.workspace.upgrade() {
@@ -229,27 +324,21 @@ impl PlanPanel {
     }
 
     fn render_plan(&self, plan: &Plan, cx: &mut Context<Self>) -> impl IntoElement {
-        let done = plan
-            .tasks
-            .iter()
-            .filter(|task| task.status == TaskStatus::Done)
-            .count();
+        let border = cx.theme().colors().border_variant;
         v_flex()
             .size_full()
-            .gap_1()
-            .p_2()
             .child(
+                // Header (§4): dot · title · sync receipt · contextual actions.
                 h_flex()
                     .gap_2()
                     .items_center()
+                    .flex_wrap()
+                    .px_3()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(border)
                     .child(status_dot(&plan.status, panel_dot_color(&plan.status), "plan-panel-dot"))
                     .child(Label::new(format!("Plan · {}", plan.id)))
-                    .child(
-                        Label::new(format!("{done}/{}", plan.tasks.len()))
-                            .buffer_font(cx)
-                            .size(LabelSize::XSmall)
-                            .color(Color::Placeholder),
-                    )
                     .child(
                         Label::new(sync_receipt(plan))
                             .buffer_font(cx)
@@ -257,6 +346,7 @@ impl PlanPanel {
                             .color(Color::Placeholder),
                     )
                     .child(div().flex_1())
+                    .children(self.panel_actions(plan, cx))
                     .child(
                         IconButton::new("open-plan-tab", IconName::Maximize)
                             .icon_size(IconSize::Small)
@@ -267,23 +357,20 @@ impl PlanPanel {
                     ),
             )
             .child(
+                // Body (§4): pipeline column (border-right) + live activity column.
                 h_flex()
                     .flex_1()
-                    .gap_4()
+                    .min_h_0()
                     .child(
                         v_flex()
                             .flex_1()
-                            .gap_1()
-                            .child(section_label("PIPELINE"))
+                            .px_3()
+                            .py_2()
+                            .border_r_1()
+                            .border_color(border)
                             .child(panel_pipeline(plan, cx)),
                     )
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .gap_1()
-                            .child(section_label("ACTIVITY"))
-                            .child(panel_activity(&self.activity, cx)),
-                    ),
+                    .child(v_flex().flex_1().px_3().py_2().child(panel_activity(&self.activity, cx))),
             )
     }
 }
@@ -349,7 +436,7 @@ fn activity_row(entry: &AgentThreadEntry) -> Option<ActivityRow> {
 /// right-aligned mono note (sha / running / GATE / guard), and a state tint.
 fn panel_pipeline(plan: &Plan, cx: &App) -> impl IntoElement {
     let status = cx.theme().status();
-    v_flex().gap_0p5().children(plan.tasks.iter().map(move |task| {
+    v_flex().gap_0p5().children(plan.tasks.iter().enumerate().map(move |(index, task)| {
         let glyph: AnyElement = if task.status == TaskStatus::InProgress {
             Icon::new(IconName::ArrowCircle)
                 .size(IconSize::XSmall)
@@ -391,13 +478,17 @@ fn panel_pipeline(plan: &Plan, cx: &App) -> impl IntoElement {
             .child(glyph)
             .child(
                 div().flex_1().min_w_0().child(
-                    Label::new(task.title.clone().unwrap_or_else(|| task.id.clone()))
-                        .size(LabelSize::Small)
-                        .color(if task.status == TaskStatus::Done {
-                            Color::Muted
-                        } else {
-                            Color::Default
-                        }),
+                    Label::new(format!(
+                        "{} · {}",
+                        index + 1,
+                        task.title.clone().unwrap_or_else(|| task.id.clone())
+                    ))
+                    .size(LabelSize::Small)
+                    .color(if task.status == TaskStatus::Done {
+                        Color::Muted
+                    } else {
+                        Color::Default
+                    }),
                 ),
             )
             .when_some(note, |row, note| {
@@ -443,9 +534,6 @@ fn panel_activity(rows: &[ActivityRow], cx: &App) -> impl IntoElement {
     }))
 }
 
-fn section_label(title: &'static str) -> impl IntoElement {
-    Label::new(title).size(LabelSize::Small).color(Color::Muted)
-}
 
 /// The sync receipt (F5.3b): the plan's rev + latest history timestamp.
 fn sync_receipt(plan: &Plan) -> String {

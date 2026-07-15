@@ -32,6 +32,11 @@ impl PlanFollower {
         self.plan.as_ref()
     }
 
+    /// The `.plans/` directory this follower resolves against (for direct writes).
+    pub fn plans_dir(&self) -> &Path {
+        &self.plans_dir
+    }
+
     pub fn session(&self) -> Option<&str> {
         self.session.as_deref()
     }
