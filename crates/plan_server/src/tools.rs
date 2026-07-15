@@ -277,6 +277,37 @@ pub fn launch(plans_dir: &Path, id: &str, thread: &str) -> Result<Plan> {
     Ok(plan)
 }
 
+/// Mark a step guard as holding (F4.5b) — the agent calls this when it reaches a
+/// guarded step, so the PreToolUse hook blocks until the user clears it.
+pub fn hold_guard(plans_dir: &Path, id: &str, task: &str, step: &str) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    exec::hold_guard(&mut plan, task, step)?;
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
+/// Clear a step guard (F4.5b): record the optional ✋ input response + evidence.
+pub fn clear_guard(
+    plans_dir: &Path,
+    id: &str,
+    task: &str,
+    step: &str,
+    response: Option<serde_json::Value>,
+) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    exec::clear_guard(&mut plan, task, step, response)?;
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
+/// Approve a GATE task (F4.5) so execution proceeds.
+pub fn approve_gate(plans_dir: &Path, id: &str, task: &str) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    exec::approve_gate(&mut plan, task)?;
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
 /// Run policy lint over the plan (F9.1): reconcile findings into `plan-lint`
 /// comments and return them so the agent can auto-fix and re-run. The worktree
 /// root (parent of `.plans/`) enables `files-must-exist`. Auto-fix is the agent's

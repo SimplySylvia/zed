@@ -129,6 +129,30 @@ struct PlanLaunchArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+struct GuardRefArgs {
+    id: String,
+    task: String,
+    step: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ClearGuardArgs {
+    id: String,
+    task: String,
+    step: String,
+    /// The ✋ input response to record (any JSON), for input guards.
+    #[serde(default)]
+    response: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct GateArgs {
+    id: String,
+    /// The GATE task id to approve.
+    task: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct HunkArg {
     /// Block id this hunk rewrites, e.g. "t2.s1" (step) or "t3" (task title).
     target: Option<String>,
@@ -329,6 +353,38 @@ impl PlanServer {
         Parameters(args): Parameters<PlanLaunchArgs>,
     ) -> Result<String, ErrorData> {
         let plan = tools::launch(&plans_dir(), &args.id, &args.thread).map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Mark a step guard as holding (F4.5b).
+    #[tool(description = "Hold a step guard so the hook blocks until the user clears it")]
+    async fn plan_hold_guard(
+        &self,
+        Parameters(args): Parameters<GuardRefArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::hold_guard(&plans_dir(), &args.id, &args.task, &args.step)
+            .map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Clear a step guard (F4.5b).
+    #[tool(description = "Clear a step guard, recording the input response and evidence")]
+    async fn plan_clear_guard(
+        &self,
+        Parameters(args): Parameters<ClearGuardArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::clear_guard(&plans_dir(), &args.id, &args.task, &args.step, args.response)
+            .map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Approve a GATE task (F4.5).
+    #[tool(description = "Approve a GATE task so execution proceeds")]
+    async fn plan_approve_gate(
+        &self,
+        Parameters(args): Parameters<GateArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::approve_gate(&plans_dir(), &args.id, &args.task).map_err(to_error)?;
         serde_json::to_string_pretty(&plan).map_err(to_error)
     }
 

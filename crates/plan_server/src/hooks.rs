@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use plan_core::{Plan, Status, TaskStatus, store};
+use plan_core::{Plan, Status, TaskStatus, exec, store};
 use serde_json::{Value, json};
 
 /// File-writing tools gated by the executing-plan rule.
@@ -72,6 +72,66 @@ pub fn pretooluse_allows_edit(plans_dir: &Path, tool_name: &str) -> Result<(), S
     }
 }
 
+/// The full PreToolUse decision (F6.3): the no-plan/not-executing edit gate, plus —
+/// while executing — a block when a guard or GATE is holding (F4.5/F4.5b), and
+/// policy force-guards on matching Bash commands. `command` is the Bash command
+/// (if the tool is Bash).
+pub fn pretooluse_gate(
+    plans_dir: &Path,
+    tool_name: &str,
+    command: Option<&str>,
+) -> Result<(), String> {
+    pretooluse_allows_edit(plans_dir, tool_name)?;
+    let Some(plan) = active_plan(plans_dir) else {
+        return Ok(());
+    };
+    if plan.status != Status::Executing {
+        return Ok(());
+    }
+    let is_edit = EDIT_TOOLS.contains(&tool_name);
+    let is_bash = tool_name == "Bash";
+    if !is_edit && !is_bash {
+        return Ok(());
+    }
+    if let Some(hold) = exec::current_hold(&plan) {
+        return Err(hold_reason(&plan, &hold));
+    }
+    if is_bash {
+        if let Some(command) = command {
+            let policy = exec::GuardPolicy::load(plans_dir);
+            if let Some(pattern) = exec::matched_require_on(&policy, command) {
+                if !exec::command_guard_cleared(&plan, &pattern) {
+                    return Err(format!(
+                        "`{pattern}` requires an approved guard — approve it in the Plan panel before running"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A human-facing reason for a guard/gate hold, quoting the guard prompt.
+fn hold_reason(plan: &Plan, hold: &exec::Hold) -> String {
+    match &hold.step {
+        Some(step) => {
+            let prompt = plan
+                .tasks
+                .iter()
+                .find(|task| task.id == hold.task)
+                .and_then(|task| task.steps.iter().find(|candidate| &candidate.id == step))
+                .and_then(|candidate| candidate.guard.as_ref())
+                .and_then(|guard| guard.prompt.clone())
+                .unwrap_or_else(|| format!("guard on {}.{step}", hold.task));
+            format!("held at a guard — {prompt}. Clear it in the Plan panel to continue.")
+        }
+        None => format!(
+            "GATE task {} needs sign-off — approve the gate in the Plan panel.",
+            hold.task
+        ),
+    }
+}
+
 /// Dispatch a hook event to its decision: returns `(stdout JSON, exit code)`.
 pub fn run(event: &str, input: &Value, plans_dir: &Path) -> (String, i32) {
     match event {
@@ -84,7 +144,11 @@ pub fn run(event: &str, input: &Value, plans_dir: &Path) -> (String, i32) {
                 .get("tool_name")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            match pretooluse_allows_edit(plans_dir, tool) {
+            let command = input
+                .get("tool_input")
+                .and_then(|tool_input| tool_input.get("command"))
+                .and_then(Value::as_str);
+            match pretooluse_gate(plans_dir, tool, command) {
                 Ok(()) => (String::new(), 0),
                 Err(reason) => (deny(&reason), 0),
             }
