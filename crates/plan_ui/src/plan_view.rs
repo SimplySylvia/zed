@@ -122,13 +122,18 @@ impl PlanView {
 
     /// The lifecycle status-dot color (design spec §9 tab-dot column).
     fn status_color(&self) -> Color {
-        match self.plan.as_ref().map(|plan| &plan.status) {
-            Some(Status::Executing) => Color::Accent,
-            Some(Status::Approved | Status::Done) => Color::Created,
-            Some(Status::InReview | Status::Revising | Status::Gate | Status::Amending) => {
-                Color::Modified
-            }
-            Some(Status::Drafting) => Color::Placeholder,
+        let Some(plan) = self.plan.as_ref() else {
+            return Color::Muted;
+        };
+        // A guard/gate hold is a needs-you state regardless of lifecycle status (§9).
+        if exec::current_hold(plan).is_some() {
+            return Color::Modified;
+        }
+        match plan.status {
+            Status::Executing => Color::Accent,
+            Status::Approved | Status::Done => Color::Created,
+            Status::InReview | Status::Revising | Status::Gate | Status::Amending => Color::Modified,
+            Status::Drafting => Color::Placeholder,
             _ => Color::Muted,
         }
     }
@@ -485,6 +490,46 @@ impl PlanView {
                 ),
             )
             .children(comment_rows)
+            .children(self.guard_controls(task, cx))
+    }
+
+    /// Clear affordances for any holding guard on this task (F4.5b): ⛨ Approve to
+    /// run / ✋ Record & continue. The ✋ free-text field is deferred (fidelity).
+    fn guard_controls(&self, task: &Task, cx: &Context<Self>) -> Vec<AnyElement> {
+        let modified = cx.theme().status().modified;
+        task.steps
+            .iter()
+            .filter(|step| {
+                step.guard.as_ref().and_then(|guard| guard.state.as_deref()) == Some("holding")
+            })
+            .filter_map(|step| {
+                let guard = step.guard.as_ref()?;
+                let is_input = guard.guard_type.as_deref() == Some("input");
+                let prompt = guard.prompt.clone().unwrap_or_default();
+                let label = if is_input {
+                    "✋ Record & continue"
+                } else {
+                    "⛨ Approve to run"
+                };
+                let task_id = task.id.clone();
+                let step_id = step.id.clone();
+                let button_id = SharedString::from(format!("clear-guard-{task_id}-{step_id}"));
+                Some(
+                    v_flex()
+                        .ml_4()
+                        .gap_1()
+                        .p_2()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(modified)
+                        .child(Label::new(prompt).size(LabelSize::Small))
+                        .child(Button::new(button_id, label).on_click(cx.listener(
+                            move |this, _, _window, cx| this.clear_step_guard(&task_id, &step_id, cx),
+                        )))
+                        .into_any_element(),
+                )
+            })
+            .collect()
     }
 
     /// Add a blocker flag anchored to a block, writing plan.json via plan_core.
@@ -606,6 +651,40 @@ impl PlanView {
         }
     }
 
+    /// Clear a held step guard (F4.5b), writing plan.json via plan_core. The ✋ input
+    /// free-text field is deferred (fidelity); the button records the clear + evidence
+    /// + receipt with no typed value for now.
+    fn clear_step_guard(&mut self, task: &str, step: &str, cx: &mut Context<Self>) {
+        let Some(plan) = self.plan.as_ref() else {
+            return;
+        };
+        let id = plan.id.clone();
+        let Ok(mut fresh) = store::load(&self.plans_dir, &id) else {
+            return;
+        };
+        if exec::clear_guard(&mut fresh, task, step, None).is_ok()
+            && store::save(&self.plans_dir, &fresh).is_ok()
+        {
+            self.reload(cx);
+        }
+    }
+
+    /// Approve a GATE task (F4.5) so execution proceeds.
+    fn approve_gate_task(&mut self, task: &str, cx: &mut Context<Self>) {
+        let Some(plan) = self.plan.as_ref() else {
+            return;
+        };
+        let id = plan.id.clone();
+        let Ok(mut fresh) = store::load(&self.plans_dir, &id) else {
+            return;
+        };
+        if exec::approve_gate(&mut fresh, task).is_ok()
+            && store::save(&self.plans_dir, &fresh).is_ok()
+        {
+            self.reload(cx);
+        }
+    }
+
     /// Launch the plan (F4.1): approved → executing + take the lease, via plan_core
     /// (the UI writes plan.json directly). Uses the followed thread's session id as
     /// the lease holder, falling back to the plan's owning thread. Git branch setup
@@ -660,6 +739,56 @@ impl PlanView {
     /// Staged-revision change card (compliance §6, design-spec §3.4): info header
     /// band + "plan unchanged until applied"; one row per hunk. Rendered as GPUI
     /// chrome for 5b — real editor-diff mini-buffers are a fidelity-pass upgrade.
+    /// Gate evidence card (F4.5) when execution holds at a GATE task: header +
+    /// ✓ Approve gate. Compliance §6 card chassis.
+    fn render_gate_hold(&self, plan: &Plan, cx: &Context<Self>) -> Option<AnyElement> {
+        let hold = exec::current_hold(plan)?;
+        if hold.kind != "gate" {
+            return None;
+        }
+        let colors = cx.theme().colors();
+        let status = cx.theme().status();
+        let title = plan
+            .tasks
+            .iter()
+            .find(|task| task.id == hold.task)
+            .and_then(|task| task.title.clone())
+            .unwrap_or_else(|| hold.task.clone());
+        let task_id = hold.task;
+        Some(
+            v_flex()
+                .mx_3()
+                .mt_2()
+                .rounded_md()
+                .border_1()
+                .border_color(colors.border)
+                .bg(colors.panel_background)
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .px_2()
+                        .py_1()
+                        .items_center()
+                        .bg(status.modified.opacity(0.15))
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .text_color(status.modified)
+                                .child("GATE — NEEDS SIGN-OFF"),
+                        )
+                        .child(Label::new(title).size(LabelSize::Small).color(Color::Muted)),
+                )
+                .child(
+                    h_flex().px_2().py_1().child(
+                        Button::new("approve-gate", "✓ Approve gate").on_click(cx.listener(
+                            move |this, _, _window, cx| this.approve_gate_task(&task_id, cx),
+                        )),
+                    ),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn render_staged_revision(&self, plan: &Plan, cx: &Context<Self>) -> Option<AnyElement> {
         let pending = plan.pending_revision.as_ref()?;
         let colors = cx.theme().colors();
@@ -855,18 +984,31 @@ impl PlanView {
 
 fn render_step(index: usize, step: &Step, cx: &App) -> impl IntoElement {
     let guard_chip = step.guard.as_ref().map(|guard| {
-        let (glyph, color) = match guard.guard_type.as_deref() {
-            Some("input") => (
+        let is_input = guard.guard_type.as_deref() == Some("input");
+        let (glyph, color) = if is_input {
+            (
                 "✋ input",
                 cx.theme()
                     .syntax()
                     .style_for_name("type")
                     .and_then(|style| style.color)
                     .unwrap_or(cx.theme().colors().text_accent),
-            ),
-            _ => ("⛨ approve", cx.theme().status().modified),
+            )
+        } else {
+            ("⛨ approve", cx.theme().status().modified)
         };
-        chip(glyph, color)
+        match guard.state.as_deref() {
+            // Cleared guard → mono success receipt (F4.5b).
+            Some("cleared") => crate::mono_chip(
+                format!("{} cleared", if is_input { "✋" } else { "⛨" }),
+                cx.theme().status().created,
+                cx,
+            )
+            .into_any_element(),
+            // Holding → the badge pulses (needs you now).
+            Some("holding") => crate::pulse(chip(glyph, color), "guard-hold-pulse"),
+            _ => chip(glyph, color).into_any_element(),
+        }
     });
 
     h_flex()
@@ -1062,6 +1204,7 @@ impl Render for PlanView {
             Some(plan) => v_flex()
                 .size_full()
                 .child(self.render_header(plan, cx))
+                .children(self.render_gate_hold(plan, cx))
                 .children(self.render_staged_revision(plan, cx))
                 .child(match self.lens {
                     Lens::Tasks => self.render_tasks(plan, cx).into_any_element(),

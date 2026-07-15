@@ -72,10 +72,11 @@ fn plan_panel_showing(workspace: &Workspace, window: &Window, cx: &App) -> bool 
 
 impl Render for PlanPill {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let content = self
-            .follower
-            .plan()
-            .map(|plan| (pill_fragment(plan), plan.status.clone()));
+        let content = self.follower.plan().map(|plan| {
+            let needs_you =
+                plan_core::exec::current_hold(plan).is_some() || plan.status == Status::Gate;
+            (pill_fragment(plan), needs_you)
+        });
         // Selected/active state: a solid fill while the panel is open (like the other
         // status-bar toggles); hover gives the standard element.hover feedback (G8).
         let panel_open = self
@@ -87,7 +88,7 @@ impl Render for PlanPill {
         let workspace = self.workspace.clone();
         div()
             .id("plan-pill")
-            .when_some(content, |el, ((fragment, color), status)| {
+            .when_some(content, |el, ((fragment, color), needs_you)| {
                 let pill = div()
                     .id("plan-pill-body")
                     .px_1p5()
@@ -116,9 +117,9 @@ impl Render for PlanPill {
                             });
                         }
                     });
-                // The pill pulses only for gate/guard-hold (contract §1), unlike the
-                // status dots (which also pulse for drafting/executing).
-                if matches!(status, Status::Gate) {
+                // The pill pulses for needs-you holds (gate / guard-hold, contract §1),
+                // unlike the status dots (which also pulse for drafting/executing).
+                if needs_you {
                     el.child(crate::pulse(pill, "plan-pill-pulse"))
                 } else {
                     el.child(pill)
@@ -142,8 +143,17 @@ impl StatusItemView for PlanPill {
     }
 }
 
-/// The pill fragment + color for a plan's lifecycle state (design-spec §9).
+/// The pill fragment + color for a plan's lifecycle state (design-spec §9). A guard
+/// or GATE hold is a needs-you state that overrides the lifecycle fragment.
 pub(crate) fn pill_fragment(plan: &Plan) -> (String, Color) {
+    if let Some(hold) = plan_core::exec::current_hold(plan) {
+        let text = if hold.kind == "gate" {
+            "GATE — needs you"
+        } else {
+            "guarded step — needs you"
+        };
+        return (text.to_string(), Color::Warning);
+    }
     match plan.status {
         Status::Executing => {
             let done = plan
