@@ -15,9 +15,12 @@ use gpui::{
     AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, Hsla, IntoElement,
     ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window, actions, px,
 };
-use plan_core::{Anchor, Comment, Plan, Status, Step, Task, TaskStatus, anchor, comments, store};
+use plan_core::{
+    Anchor, Comment, HistoryEntry, Hunk, Plan, Status, Step, Task, TaskStatus, anchor, comments,
+    rev, store,
+};
 use ui::prelude::*;
-use ui::{Button, Indicator};
+use ui::{Button, Indicator, Tooltip};
 use workspace::{
     Workspace,
     item::{Item, ItemEvent, SerializableItem, TabContentParams},
@@ -262,12 +265,16 @@ impl SerializableItem for PlanView {
 }
 
 impl PlanView {
+    /// Plan toolbar (compliance §3 / design-spec §3.1): status pill · rev · lens
+    /// switcher · blocker chip (when > 0) · spacer · contextual · primary.
     fn render_header(&self, plan: &Plan, cx: &mut Context<Self>) -> impl IntoElement {
         let open_comments = plan
             .comments
             .iter()
             .filter(|comment| comment.state.as_deref() == Some("open"))
             .count();
+        let blockers = open_blocker_count(plan);
+        let deleted = cx.theme().status().deleted;
         h_flex()
             .gap_2()
             .px_3()
@@ -287,6 +294,13 @@ impl PlanView {
                     .child(self.lens_button(Lens::Design, "Design", cx))
                     .child(self.lens_button(Lens::Tasks, "Tasks", cx)),
             )
+            .when(blockers > 0, |header| {
+                header.child(chip(
+                    format!("⚑ {blockers} blocker{}", if blockers == 1 { "" } else { "s" }),
+                    deleted,
+                ))
+            })
+            .child(div().flex_1())
             .when(open_comments > 0, |header| {
                 header.child(
                     Button::new(
@@ -296,6 +310,35 @@ impl PlanView {
                     .on_click(cx.listener(|this, _, _window, cx| this.send_for_revision(cx))),
                 )
             })
+            .child(self.render_primary(plan, blockers, cx))
+    }
+
+    /// The state-driven primary action (design-spec §9 matrix). In 5b: `Apply all`
+    /// while a revision is staged; `Approve` in review states (disabled with a G5
+    /// tooltip while blockers are open). Launch/Pause/gate primaries are M6.
+    fn render_primary(&self, plan: &Plan, blockers: usize, cx: &Context<Self>) -> AnyElement {
+        if plan.pending_revision.is_some() {
+            return Button::new("apply-all", "Apply all")
+                .on_click(cx.listener(|this, _, _window, cx| this.apply_all(cx)))
+                .into_any_element();
+        }
+        if matches!(
+            plan.status,
+            Status::Drafting | Status::InReview | Status::Revising
+        ) {
+            let enabled = approve_enabled(plan);
+            let mut approve = Button::new("approve", "Approve")
+                .disabled(!enabled)
+                .on_click(cx.listener(|this, _, _window, cx| this.approve(cx)));
+            if !enabled {
+                approve = approve.tooltip(Tooltip::text(format!(
+                    "{blockers} blocker{} open",
+                    if blockers == 1 { "" } else { "s" }
+                )));
+            }
+            return approve.into_any_element();
+        }
+        div().into_any_element()
     }
 
     fn lens_button(
@@ -351,7 +394,7 @@ impl PlanView {
                         let outdated = comment.anchor.as_ref().is_some_and(|a| {
                             matches!(anchor::reanchor(a, plan), anchor::ReanchorResult::Outdated)
                         });
-                        render_comment(comment, outdated)
+                        self.render_comment(comment, outdated, cx)
                     })
                     .collect()
             })
@@ -463,35 +506,265 @@ impl PlanView {
             self.reload(cx);
         }
     }
+
+    /// Apply/reject a staged hunk, then resolve (F9.3). `resolve_revision` is a
+    /// no-op until every hunk is decided, then commits once (bumps rev, stamps
+    /// provenance) — so this is safe to call after each per-hunk action.
+    fn apply_hunk(&mut self, hunk_id: &str, cx: &mut Context<Self>) {
+        self.mutate_pending(cx, |plan| {
+            rev::apply_hunk(plan, hunk_id);
+        });
+    }
+
+    fn reject_hunk(&mut self, hunk_id: &str, cx: &mut Context<Self>) {
+        self.mutate_pending(cx, |plan| {
+            rev::reject_hunk(plan, hunk_id);
+        });
+    }
+
+    fn apply_all(&mut self, cx: &mut Context<Self>) {
+        self.mutate_pending(cx, |plan| {
+            rev::apply_all(plan);
+        });
+    }
+
+    fn mutate_pending(&mut self, cx: &mut Context<Self>, mutate: impl FnOnce(&mut Plan)) {
+        let Some(plan) = self.plan.as_ref() else {
+            return;
+        };
+        let id = plan.id.clone();
+        let Ok(mut fresh) = store::load(&self.plans_dir, &id) else {
+            return;
+        };
+        mutate(&mut fresh);
+        rev::resolve_revision(&mut fresh);
+        if store::save(&self.plans_dir, &fresh).is_ok() {
+            self.reload(cx);
+        }
+    }
+
+    /// Resolve a comment (F3.4d: resolution belongs to the user); clears it from
+    /// the Approve gate.
+    fn resolve_comment(&mut self, comment_id: &str, cx: &mut Context<Self>) {
+        let Some(plan) = self.plan.as_ref() else {
+            return;
+        };
+        let id = plan.id.clone();
+        let Ok(mut fresh) = store::load(&self.plans_dir, &id) else {
+            return;
+        };
+        if comments::set_comment_state(&mut fresh, comment_id, "resolved")
+            && store::save(&self.plans_dir, &fresh).is_ok()
+        {
+            self.reload(cx);
+        }
+    }
+
+    /// Approve the plan (F3.6). Guarded to zero open blockers even though the
+    /// button is disabled, since the UI writes plan.json directly. Mirrors the
+    /// server's rev+history stamping.
+    fn approve(&mut self, cx: &mut Context<Self>) {
+        let Some(plan) = self.plan.as_ref() else {
+            return;
+        };
+        let id = plan.id.clone();
+        let Ok(mut fresh) = store::load(&self.plans_dir, &id) else {
+            return;
+        };
+        if open_blocker_count(&fresh) > 0 {
+            return;
+        }
+        fresh.status = Status::Approved;
+        fresh.rev += 1;
+        fresh.history.push(HistoryEntry {
+            rev: Some(fresh.rev),
+            by: Some("user".to_string()),
+            kind: Some("status".to_string()),
+            summary: Some("approved".to_string()),
+            at: None,
+            extra: Default::default(),
+        });
+        if store::save(&self.plans_dir, &fresh).is_ok() {
+            self.reload(cx);
+        }
+    }
+
+    /// Staged-revision change card (compliance §6, design-spec §3.4): info header
+    /// band + "plan unchanged until applied"; one row per hunk. Rendered as GPUI
+    /// chrome for 5b — real editor-diff mini-buffers are a fidelity-pass upgrade.
+    fn render_staged_revision(&self, plan: &Plan, cx: &Context<Self>) -> Option<AnyElement> {
+        let pending = plan.pending_revision.as_ref()?;
+        let colors = cx.theme().colors();
+        let status = cx.theme().status();
+        let rev_note = pending
+            .rev
+            .map(|rev| format!("rev {rev}"))
+            .unwrap_or_default();
+        Some(
+            v_flex()
+                .mx_3()
+                .mt_2()
+                .rounded_md()
+                .border_1()
+                .border_color(colors.border)
+                .bg(colors.panel_background)
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .px_2()
+                        .py_1()
+                        .items_center()
+                        .bg(status.info_background)
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .text_color(status.info)
+                                .child("STAGED REVISION"),
+                        )
+                        .child(
+                            Label::new("plan unchanged until applied")
+                                .size(LabelSize::Small)
+                                .color(Color::Muted),
+                        )
+                        .child(div().flex_1())
+                        .child(Label::new(rev_note).size(LabelSize::Small).color(Color::Muted)),
+                )
+                .children(pending.hunks.iter().map(|hunk| self.render_hunk(hunk, cx)))
+                .into_any_element(),
+        )
+    }
+
+    /// One staged hunk: target + provenance chip + old (struck, deleted-bg) / new
+    /// (created-bg) lines + Apply/Reject (or the resolved state).
+    fn render_hunk(&self, hunk: &Hunk, cx: &Context<Self>) -> impl IntoElement {
+        let colors = cx.theme().colors();
+        let status = cx.theme().status();
+        let id = hunk.id.clone();
+        let old = hunk.old.clone().unwrap_or_default();
+        let new = hunk.new.clone().unwrap_or_default();
+        let controls = match hunk.state.as_deref() {
+            Some("applied") => Label::new("✓ Applied")
+                .size(LabelSize::Small)
+                .color(Color::Created)
+                .into_any_element(),
+            Some("rejected") => Label::new("Rejected")
+                .size(LabelSize::Small)
+                .color(Color::Muted)
+                .into_any_element(),
+            _ => h_flex()
+                .gap_1()
+                .child(
+                    Button::new(SharedString::from(format!("apply-{id}")), "Apply").on_click(
+                        cx.listener({
+                            let id = id.clone();
+                            move |this, _, _window, cx| this.apply_hunk(&id, cx)
+                        }),
+                    ),
+                )
+                .child(
+                    Button::new(SharedString::from(format!("reject-{id}")), "Reject").on_click(
+                        cx.listener(move |this, _, _window, cx| this.reject_hunk(&id, cx)),
+                    ),
+                )
+                .into_any_element(),
+        };
+
+        v_flex()
+            .gap_0p5()
+            .px_2()
+            .py_1()
+            .border_t_1()
+            .border_color(colors.border_variant)
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        Label::new(hunk.target.clone().unwrap_or_default())
+                            .size(LabelSize::Small)
+                            .color(Color::Muted),
+                    )
+                    .when_some(hunk.from.clone(), |row, from| {
+                        row.child(chip(format!("from {from}"), status.info))
+                    })
+                    .child(div().flex_1())
+                    .child(controls),
+            )
+            .when(!old.is_empty(), |row| {
+                row.child(
+                    div()
+                        .px_1()
+                        .line_through()
+                        .bg(status.deleted_background)
+                        .text_color(status.deleted)
+                        .text_size(px(12.))
+                        .child(SharedString::from(old)),
+                )
+            })
+            .when(!new.is_empty(), |row| {
+                row.child(
+                    div()
+                        .px_1()
+                        .bg(status.created_background)
+                        .text_color(status.created)
+                        .text_size(px(12.))
+                        .child(SharedString::from(new)),
+                )
+            })
+    }
 }
 
-/// Render one anchored comment (severity glyph + text + state + outdated badge).
-fn render_comment(comment: &Comment, outdated: bool) -> impl IntoElement {
-    let (glyph, color) = match comment.severity.as_deref() {
-        Some("blocker") => ("⚑", Color::Error),
-        Some("concern") => ("⚠", Color::Warning),
-        _ => ("💡", Color::Muted),
-    };
-    let text = comment
-        .thread
-        .first()
-        .and_then(|message| message.text.clone())
-        .unwrap_or_default();
-    let state = comment.state.clone().unwrap_or_default();
-    h_flex()
-        .pl_4()
-        .gap_2()
-        .items_center()
-        .child(Label::new(glyph).color(color).size(LabelSize::Small))
-        .child(Label::new(text).size(LabelSize::Small))
-        .child(Label::new(state).size(LabelSize::Small).color(Color::Muted))
-        .when(outdated, |row| {
-            row.child(
-                Label::new("outdated")
+impl PlanView {
+    /// Render one anchored comment (severity glyph + text + state + outdated badge).
+    /// Open blockers carry a `✓ resolve` affordance (F3.4d) so the Approve gate is
+    /// clearable in the tab.
+    fn render_comment(
+        &self,
+        comment: &Comment,
+        outdated: bool,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
+        let (glyph, color) = match comment.severity.as_deref() {
+            Some("blocker") => ("⚑", Color::Error),
+            Some("concern") => ("⚠", Color::Warning),
+            _ => ("💡", Color::Muted),
+        };
+        let text = comment
+            .thread
+            .first()
+            .and_then(|message| message.text.clone())
+            .unwrap_or_default();
+        let state = comment.state.clone().unwrap_or_default();
+        let resolvable = comment.severity.as_deref() == Some("blocker") && state != "resolved";
+        let comment_id = comment.id.clone();
+        h_flex()
+            .pl_4()
+            .gap_2()
+            .items_center()
+            .child(Label::new(glyph).color(color).size(LabelSize::Small))
+            .child(Label::new(text).size(LabelSize::Small))
+            .child(
+                Label::new(state)
                     .size(LabelSize::Small)
-                    .color(Color::Warning),
+                    .color(Color::Muted),
             )
-        })
+            .when(outdated, |row| {
+                row.child(
+                    Label::new("outdated")
+                        .size(LabelSize::Small)
+                        .color(Color::Warning),
+                )
+            })
+            .when(resolvable, |row| {
+                row.child(
+                    Button::new(SharedString::from(format!("resolve-{comment_id}")), "✓ resolve")
+                        .on_click(cx.listener({
+                            let comment_id = comment_id.clone();
+                            move |this, _, _window, cx| this.resolve_comment(&comment_id, cx)
+                        })),
+                )
+            })
+    }
 }
 
 fn render_step(index: usize, step: &Step, cx: &App) -> impl IntoElement {
@@ -557,6 +830,23 @@ fn system_color(system: Option<&str>, cx: &App) -> Hsla {
         Some("gate") => theme.status().modified,
         _ => theme.colors().text_muted,
     }
+}
+
+/// Comments that gate Approve (F3.6): blocker-severity and not yet resolved
+/// (F3.4d — resolution belongs to the user).
+fn open_blocker_count(plan: &Plan) -> usize {
+    plan.comments
+        .iter()
+        .filter(|comment| {
+            comment.severity.as_deref() == Some("blocker")
+                && comment.state.as_deref() != Some("resolved")
+        })
+        .count()
+}
+
+/// Approve is enabled only at zero open blockers (F3.6).
+fn approve_enabled(plan: &Plan) -> bool {
+    open_blocker_count(plan) == 0
 }
 
 /// A small bordered pill whose text inherits the given color.
@@ -663,6 +953,7 @@ impl Render for PlanView {
             Some(plan) => v_flex()
                 .size_full()
                 .child(self.render_header(plan, cx))
+                .children(self.render_staged_revision(plan, cx))
                 .child(match self.lens {
                     Lens::Tasks => self.render_tasks(plan, cx).into_any_element(),
                     Lens::Spec => render_spec(plan).into_any_element(),
@@ -676,5 +967,48 @@ impl Render for PlanView {
             .bg(editor_bg)
             .track_focus(&self.focus_handle)
             .child(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plan(value: serde_json::Value) -> Plan {
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn open_blocker_gates_approve() {
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "in_review", "rev": 1,
+            "thread": "a", "spec": { "goal": "g" },
+            "comments": [
+                { "id": "c1", "severity": "blocker", "state": "open" },
+                { "id": "c2", "severity": "concern", "state": "open" }
+            ]
+        }));
+        assert_eq!(open_blocker_count(&plan), 1);
+        assert!(!approve_enabled(&plan));
+    }
+
+    #[test]
+    fn resolved_blocker_enables_approve() {
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "in_review", "rev": 1,
+            "thread": "a", "spec": { "goal": "g" },
+            "comments": [{ "id": "c1", "severity": "blocker", "state": "resolved" }]
+        }));
+        assert_eq!(open_blocker_count(&plan), 0);
+        assert!(approve_enabled(&plan));
+    }
+
+    #[test]
+    fn no_blockers_enables_approve() {
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "in_review", "rev": 1,
+            "thread": "a", "spec": { "goal": "g" }
+        }));
+        assert!(approve_enabled(&plan));
     }
 }
