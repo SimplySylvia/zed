@@ -9,10 +9,10 @@ use std::path::PathBuf;
 
 use agent_ui::{AgentPanel, AgentPanelEvent};
 use gpui::{
-    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window, actions,
+    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, Hsla, IntoElement,
+    ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window, actions, px,
 };
-use plan_core::{Plan, Status, store};
+use plan_core::{Plan, Status, Step, Task, TaskStatus, store};
 use ui::Indicator;
 use ui::prelude::*;
 use workspace::{
@@ -180,37 +180,210 @@ impl Item for PlanView {
     }
 }
 
+impl PlanView {
+    fn render_header(&self, plan: &Plan) -> impl IntoElement {
+        h_flex()
+            .gap_2()
+            .px_3()
+            .py_1()
+            .items_center()
+            .child(Indicator::dot().color(self.status_color()))
+            .child(Label::new(format!("Plan — {}", plan.id)).size(LabelSize::Large))
+            .child(
+                Label::new(format!("rev {}", plan.rev))
+                    .size(LabelSize::Small)
+                    .color(Color::Muted),
+            )
+            .child(
+                Label::new(format!("{:?}", plan.status).to_lowercase())
+                    .size(LabelSize::Small)
+                    .color(self.status_color()),
+            )
+    }
+
+    fn render_tasks(&self, plan: &Plan, cx: &App) -> impl IntoElement {
+        v_flex()
+            .gap_2()
+            .p_3()
+            .children(plan.tasks.iter().map(|task| render_task_card(task, cx)))
+    }
+}
+
+/// Task card (compliance §7 / design-spec §3.5). Structural first pass — chrome
+/// via `cx.theme()`; fidelity gaps (mono fonts, spinner, exact glyph sizes) are
+/// recorded as §13 deviations for polish.
+fn render_task_card(task: &Task, cx: &App) -> impl IntoElement {
+    let colors = cx.theme().colors();
+    let status = cx.theme().status();
+    let border = if task.status == TaskStatus::InProgress {
+        status.info
+    } else if task.status == TaskStatus::Failed {
+        status.deleted
+    } else if task.gate {
+        status.modified
+    } else {
+        colors.border_variant
+    };
+    let (glyph, glyph_color) = status_glyph(task);
+    let done = task.status == TaskStatus::Done;
+    let guarded = task.steps.iter().filter(|step| step.guard.is_some()).count();
+
+    v_flex()
+        .gap_1()
+        .p_2()
+        .rounded_md()
+        .border_1()
+        .border_color(border)
+        .bg(colors.panel_background)
+        .child(
+            h_flex()
+                .gap_2()
+                .items_center()
+                .flex_wrap()
+                .child(Label::new(glyph).color(glyph_color))
+                .child(
+                    Label::new(task.id.clone())
+                        .size(LabelSize::Small)
+                        .color(Color::Muted),
+                )
+                .child(
+                    Label::new(task.title.clone().unwrap_or_default())
+                        .color(if done { Color::Muted } else { Color::Default }),
+                )
+                .when_some(task.ticket.clone(), |row, ticket| {
+                    row.child(chip(ticket, colors.text_muted))
+                })
+                .when_some(task.system.clone(), |row, system| {
+                    row.child(chip(system.to_uppercase(), system_color(Some(&system), cx)))
+                })
+                .when(guarded > 0, |row| {
+                    row.child(chip(format!("⛨ {guarded} guarded"), status.modified))
+                })
+                .when_some(task.artifacts.sha.clone(), |row, sha| {
+                    row.child(chip(
+                        format!("⌥ {}", sha.chars().take(7).collect::<String>()),
+                        status.created,
+                    ))
+                }),
+        )
+        .child(
+            v_flex()
+                .pl_4()
+                .gap_0p5()
+                .children(
+                    task.steps
+                        .iter()
+                        .enumerate()
+                        .map(|(index, step)| render_step(index, step, cx)),
+                ),
+        )
+}
+
+fn render_step(index: usize, step: &Step, cx: &App) -> impl IntoElement {
+    let guard_chip = step.guard.as_ref().map(|guard| {
+        let (glyph, color) = match guard.guard_type.as_deref() {
+            Some("input") => (
+                "✋ input",
+                cx.theme()
+                    .syntax()
+                    .style_for_name("type")
+                    .and_then(|style| style.color)
+                    .unwrap_or(cx.theme().colors().text_accent),
+            ),
+            _ => ("⛨ approve", cx.theme().status().modified),
+        };
+        chip(glyph, color)
+    });
+
+    h_flex()
+        .gap_2()
+        .items_start()
+        .child(
+            Label::new(format!("{}.", index + 1))
+                .size(LabelSize::Small)
+                .color(Color::Muted),
+        )
+        .child(Label::new(step.text.clone().unwrap_or_default()).size(LabelSize::Small))
+        .children(guard_chip)
+}
+
+/// The checkbox glyph + color for a task's state (compliance §7 vocabulary).
+fn status_glyph(task: &Task) -> (&'static str, Color) {
+    if task.gate && task.status == TaskStatus::Pending {
+        return ("⏸", Color::Modified);
+    }
+    match task.status {
+        TaskStatus::Pending => ("○", Color::Placeholder),
+        TaskStatus::InProgress => ("◐", Color::Accent),
+        TaskStatus::Done => ("✓", Color::Created),
+        TaskStatus::Failed => ("✕", Color::Error),
+        TaskStatus::Skipped => ("–", Color::Muted),
+        TaskStatus::Interrupted => ("⚠", Color::Warning),
+    }
+}
+
+/// System-badge color (design-spec §3.5): Backend purple / Frontend teal /
+/// Testing green / GATE amber. Purple/teal have no `ThemeColors` field, so they
+/// map to the syntax keyword/type highlight colors (recorded mapping decision).
+fn system_color(system: Option<&str>, cx: &App) -> Hsla {
+    let theme = cx.theme();
+    match system.map(str::to_ascii_lowercase).as_deref() {
+        Some("backend") => theme
+            .syntax()
+            .style_for_name("keyword")
+            .and_then(|style| style.color)
+            .unwrap_or(theme.colors().text_accent),
+        Some("frontend") => theme
+            .syntax()
+            .style_for_name("type")
+            .and_then(|style| style.color)
+            .unwrap_or(theme.colors().text_accent),
+        Some("testing") => theme.status().created,
+        Some("gate") => theme.status().modified,
+        _ => theme.colors().text_muted,
+    }
+}
+
+/// A small bordered pill whose text inherits the given color.
+fn chip(text: impl Into<SharedString>, color: Hsla) -> impl IntoElement {
+    div()
+        .px_1()
+        .rounded_sm()
+        .border_1()
+        .border_color(color)
+        .text_color(color)
+        .text_size(px(10.))
+        .child(text.into())
+}
+
 impl Render for PlanView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let body = match self.plan.as_ref() {
+        let editor_bg = cx.theme().colors().editor_background;
+        let body = match &self.plan {
             None => v_flex()
                 .items_center()
                 .justify_center()
                 .gap_1()
                 .size_full()
                 .child(Label::new("Plan").size(LabelSize::Large))
-                .child(
-                    Label::new("no plan — ask the agent to draft one").color(Color::Muted),
-                )
+                .child(Label::new("no plan — ask the agent to draft one").color(Color::Muted))
                 .into_any_element(),
-            Some(plan) => {
-                // Placeholder frame until the Tasks/Spec/Design lenses land (T6/T7).
-                let _ = self.lens;
-                v_flex()
-                    .p_3()
-                    .gap_1()
-                    .child(
-                        Label::new(format!("Plan — {} ({:?})", plan.id, plan.status))
-                            .size(LabelSize::Large),
-                    )
-                    .child(Label::new(plan.title.clone()).color(Color::Muted))
-                    .into_any_element()
-            }
+            Some(plan) => v_flex()
+                .size_full()
+                .child(self.render_header(plan))
+                .child(match self.lens {
+                    Lens::Tasks => self.render_tasks(plan, cx).into_any_element(),
+                    Lens::Spec => Label::new("Spec lens — T7").color(Color::Muted).into_any_element(),
+                    Lens::Design => {
+                        Label::new("Design lens — T7").color(Color::Muted).into_any_element()
+                    }
+                })
+                .into_any_element(),
         };
 
         v_flex()
             .size_full()
-            .bg(cx.theme().colors().editor_background)
+            .bg(editor_bg)
             .track_focus(&self.focus_handle)
             .child(body)
     }
