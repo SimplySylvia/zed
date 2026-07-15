@@ -5,8 +5,11 @@ A cross-cutting `plan_ui` pass (not a numbered milestone) tightening the built s
 Scope agreed with the developer: **Tier 1 (mono metadata, comment fidelity, pill polish) +
 animations (pulse)**. Strictly aligning code to the documented design — no design invention.
 
-**Status:** code complete; `plan_ui` tests + clippy + full `zed` build green. **§13 visual
-verification under One Dark is the developer gate.**
+**Status:** COMPLETE. `plan_ui` tests + clippy + full `zed` build green; **§13 visual
+verification under One Dark confirmed by the developer (2026-07-15)** — mono metadata, colored
+comment state chips + mono anchor labels, the tinted pill, and the pulse (tab/panel dots +
+gate-only pill, reduced-motion honored) all verified against a rich seed plan. Deferred items
+(below) remain.
 
 ## What changed
 
