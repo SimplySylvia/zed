@@ -518,3 +518,54 @@ Configured a project `.claude/settings.json` and drove `claude -p` (v2.1.207, he
 Both mechanisms work, so F6.3 enforcement (block code edits without a plan, hold on guards,
 re-inject the plan) is buildable as designed. The §7 "hooks can't deny/inject" risk is
 refuted.
+
+---
+
+# M3 design-contract notes (T1)
+
+Governing docs: `docs/design/plan-ui-compliance.md` (the MUST-contract), `plan-ui-design-spec.md`
+(anatomy), and the `plan-ui-design` skill (auto-loads on plan_ui work). The **§13 verification
+protocol** runs per component under One Dark, choreographed by the demo HTML. Only these M3
+components matter now; the rest are later milestones.
+
+### Plan tab — compliance §2 + state-matrix (spec §9) tab-dot column
+- Singleton per workspace; retarget on thread switch; title `Plan — <id>`; empty-state copy
+  **exactly** "no plan — ask the agent to draft one"; serialization restores the thread binding.
+- Status-dot by lifecycle (theme role): drafting → `text_placeholder` **+ pulse**; lint /
+  in_review / rev-staged / gate → `status.modified`; guard-hold & gate → `status.modified`
+  **+ pulse**; approved / rehearsed / done → `status.created`; executing → `text_accent`
+  **+ pulse**; task-failed → `status.deleted`.
+
+### Lens switcher / toolbar — compliance §3 (spec §3.1)
+- Order: status pill · rev (mono) · **Spec|Design|Tasks** switcher · [blocker chip] · spacer ·
+  [contextual] · [primary]. **M3 renders pill(read-only) + rev + switcher only**; blocker chip
+  and Approve/Launch primaries are M5/review. Default lens follows status.
+
+### Task card — compliance §7 (spec §3.5)
+- Card border by state: active → `info`/`text_accent` border, failed → `deleted`, gate → `modified`.
+- Checkbox vocab (exact): empty=pending · accent spinner=running · `created` ✓ fill=done ·
+  `deleted` ✕ fill=failed · `modified` ⏸ outline=gate. Done titles strike through.
+- Chip order: ticket (mono) · **system badge** · guard summary · sha (`⌥ sha +a −d`, diffstat
+  colored) · tests/evidence · amendment tag.
+- **System-badge colors — MAPPING DECISION to record in M3.md:** Backend **purple** /
+  Frontend **teal** / Testing **green** / GATE **amber**. Per Part IV §1, purple is the syntax
+  *keyword* color and doubles as the agent/amendment/PR identity color — it has **no
+  `ThemeColors` field**, so Backend/amendment/PR purple must map to `cx.theme().syntax()`'s
+  keyword highlight (teal → syntax `type`/`function`; green → `status.created`; amber →
+  `status.modified`). Confirm the exact `syntax()` accessor when building T6.
+- Guard badges on steps: ⛨ approval (amber/`modified`), ✋ input (teal); active guard pulses;
+  cleared guard = mono success receipt.
+
+### Spec/Design lenses — spec §3.8 (M3 = "styled text", simpler than full spec)
+- Acceptance rows: `WHEN` teal-bold, `SHALL` purple-bold, ticket ref purple mono, evidence
+  chip accent mono. M3 renders goal / scope in-out / acceptance list / contracts (basic rows) /
+  decisions / risks as styled GPUI text. **Deferred to later:** ui-states galleries, contract
+  grids as mini-buffers, assumption-confirm flips (they need the review/preview machinery).
+
+### Global (compliance §0) — applies to every M3 element
+All color via `cx.theme()` by semantic role (zero hex); fonts `ui_font` (body 12–13px sans) /
+`buffer_font` (metadata/SHAs/anchors, mono 9–11px, placeholder/muted); hover + focus-visible
+states; motion limited to pulse (needs-you/live) / spinner (running) / shimmer (streaming),
+honoring reduced-motion. Copy idioms from `git_ui`/`agent_ui`, don't invent GPUI patterns. If
+the design is silent/contradictory for a case → **stop and ask** (don't improvise; gaps go to
+the design track).
