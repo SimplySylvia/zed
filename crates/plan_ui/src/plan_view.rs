@@ -69,6 +69,12 @@ impl PlanView {
     }
 
     fn open(workspace: &mut Workspace, _: &OpenPlan, window: &mut Window, cx: &mut Context<Workspace>) {
+        Self::open_tab(workspace, window, cx);
+    }
+
+    /// Open (or re-activate) the singleton Plan tab in the active pane. Reused by
+    /// the `OpenPlan` action and the panel's "Open as tab" button (F1.3).
+    pub fn open_tab(workspace: &mut Workspace, window: &mut Window, cx: &mut Context<Workspace>) {
         // Singleton: reuse the existing tab if present, else open one. Bind the
         // lookup to a local first so its borrow of `workspace`/`cx` is released.
         let existing = workspace.items_of_type::<Self>(cx).next();

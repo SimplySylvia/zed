@@ -19,8 +19,8 @@ use gpui::{
     WeakEntity, Window, actions, px, pulsating_between,
 };
 use plan_core::{Plan, Status, Task, TaskStatus};
-use ui::Indicator;
 use ui::prelude::*;
+use ui::{IconButton, IconSize, Indicator, Tooltip};
 use workspace::{
     Workspace,
     dock::{DockPosition, Panel, PanelEvent},
@@ -218,6 +218,76 @@ impl Panel for PlanPanel {
     }
 }
 
+impl PlanPanel {
+    /// Open the full Plan document tab (F1.3 "Open as tab").
+    fn open_plan_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(workspace) = self.workspace.upgrade() {
+            workspace.update(cx, |workspace, cx| {
+                plan_view::PlanView::open_tab(workspace, window, cx);
+            });
+        }
+    }
+
+    fn render_plan(&self, plan: &Plan, cx: &mut Context<Self>) -> impl IntoElement {
+        let done = plan
+            .tasks
+            .iter()
+            .filter(|task| task.status == TaskStatus::Done)
+            .count();
+        v_flex()
+            .size_full()
+            .gap_1()
+            .p_2()
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(status_dot(&plan.status, panel_dot_color(&plan.status), "plan-panel-dot"))
+                    .child(Label::new(format!("Plan · {}", plan.id)))
+                    .child(
+                        Label::new(format!("{done}/{}", plan.tasks.len()))
+                            .buffer_font(cx)
+                            .size(LabelSize::XSmall)
+                            .color(Color::Placeholder),
+                    )
+                    .child(
+                        Label::new(sync_receipt(plan))
+                            .buffer_font(cx)
+                            .size(LabelSize::XSmall)
+                            .color(Color::Placeholder),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        IconButton::new("open-plan-tab", IconName::Maximize)
+                            .icon_size(IconSize::Small)
+                            .tooltip(Tooltip::text("Open as tab"))
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.open_plan_tab(window, cx)),
+                            ),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .flex_1()
+                    .gap_4()
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .gap_1()
+                            .child(section_label("PIPELINE"))
+                            .child(panel_pipeline(plan)),
+                    )
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .gap_1()
+                            .child(section_label("ACTIVITY"))
+                            .child(panel_activity(&self.activity)),
+                    ),
+            )
+    }
+}
+
 impl Render for PlanPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let panel_background = cx.theme().colors().panel_background;
@@ -233,7 +303,7 @@ impl Render for PlanPanel {
                         Label::new("no plan — ask the agent to draft one").color(Color::Muted),
                     )
                     .into_any_element(),
-                Some(plan) => panel_body(plan, &self.activity, cx).into_any_element(),
+                Some(plan) => self.render_plan(plan, cx).into_any_element(),
             })
     }
 }
@@ -270,58 +340,6 @@ fn activity_row(entry: &AgentThreadEntry) -> Option<ActivityRow> {
         .map(|name| name.to_string())
         .unwrap_or_else(|| "tool".to_string());
     Some(ActivityRow { text, kind })
-}
-
-fn panel_body(plan: &Plan, activity: &[ActivityRow], cx: &App) -> impl IntoElement {
-    v_flex()
-        .size_full()
-        .gap_1()
-        .p_2()
-        .child(panel_header(plan, cx))
-        .child(
-            h_flex()
-                .flex_1()
-                .gap_4()
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .gap_1()
-                        .child(section_label("PIPELINE"))
-                        .child(panel_pipeline(plan)),
-                )
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .gap_1()
-                        .child(section_label("ACTIVITY"))
-                        .child(panel_activity(activity)),
-                ),
-        )
-}
-
-fn panel_header(plan: &Plan, cx: &App) -> impl IntoElement {
-    let done = plan
-        .tasks
-        .iter()
-        .filter(|task| task.status == TaskStatus::Done)
-        .count();
-    h_flex()
-        .gap_2()
-        .items_center()
-        .child(status_dot(&plan.status, panel_dot_color(&plan.status), "plan-panel-dot"))
-        .child(Label::new(format!("Plan · {}", plan.id)))
-        .child(
-            Label::new(format!("{done}/{}", plan.tasks.len()))
-                .buffer_font(cx)
-                .size(LabelSize::XSmall)
-                .color(Color::Placeholder),
-        )
-        .child(
-            Label::new(sync_receipt(plan))
-                .buffer_font(cx)
-                .size(LabelSize::XSmall)
-                .color(Color::Placeholder),
-        )
 }
 
 fn panel_pipeline(plan: &Plan) -> impl IntoElement {
