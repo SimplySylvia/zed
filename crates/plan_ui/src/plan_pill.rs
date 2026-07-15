@@ -57,26 +57,44 @@ impl PlanPill {
     }
 }
 
+/// Whether the Plan panel is the panel currently visible in its (open) dock —
+/// drives the pill's toggle and its selected/active styling.
+fn plan_panel_showing(workspace: &Workspace, window: &Window, cx: &App) -> bool {
+    workspace.panel::<PlanPanel>(cx).is_some_and(|panel| {
+        let position = panel.read(cx).position(window, cx);
+        let dock = workspace.dock_at_position(position).read(cx);
+        dock.is_open()
+            && dock
+                .visible_panel()
+                .is_some_and(|visible| visible.panel_id() == panel.entity_id())
+    })
+}
+
 impl Render for PlanPill {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = self
             .follower
             .plan()
             .map(|plan| (pill_fragment(plan), plan.status.clone()));
+        // Selected/active state: a solid fill while the panel is open (like the other
+        // status-bar toggles); hover gives the standard element.hover feedback (G8).
+        let panel_open = self
+            .workspace
+            .upgrade()
+            .is_some_and(|workspace| plan_panel_showing(workspace.read(cx), window, cx));
+        let hover_bg = cx.theme().colors().element_hover;
+        let selected_bg = cx.theme().colors().element_selected;
         let workspace = self.workspace.clone();
         div()
             .id("plan-pill")
             .when_some(content, |el, ((fragment, color), status)| {
-                // Rounded caps pill, tinted by the state family (compliance §1).
-                let tint = color.color(cx);
                 let pill = div()
                     .id("plan-pill-body")
                     .px_1p5()
                     .rounded_full()
-                    .border_1()
-                    .border_color(tint)
-                    .bg(tint.opacity(0.1))
                     .cursor_pointer()
+                    .when(panel_open, |pill| pill.bg(selected_bg))
+                    .hover(|style| style.bg(hover_bg))
                     .child(
                         Label::new(format!("◆ Plan {fragment}"))
                             .color(color)
@@ -85,19 +103,9 @@ impl Render for PlanPill {
                     .on_click(move |_, window, cx| {
                         if let Some(workspace) = workspace.upgrade() {
                             workspace.update(cx, |workspace, cx| {
-                                // Toggle open/closed. `toggle_panel_focus` only closes when the
-                                // panel is focused, which a status-bar click doesn't retain — so
-                                // check whether the Plan panel is the visible bottom-dock panel
-                                // and open or close explicitly.
-                                let showing = workspace.panel::<PlanPanel>(cx).is_some_and(|panel| {
-                                    let position = panel.read(cx).position(window, cx);
-                                    let dock = workspace.dock_at_position(position).read(cx);
-                                    dock.is_open()
-                                        && dock
-                                            .visible_panel()
-                                            .is_some_and(|visible| visible.panel_id() == panel.entity_id())
-                                });
-                                if showing {
+                                // `toggle_panel_focus` only closes a focused panel, which a
+                                // status-bar click doesn't retain — toggle explicitly.
+                                if plan_panel_showing(workspace, window, cx) {
                                     workspace.close_panel::<PlanPanel>(window, cx);
                                 } else {
                                     workspace.open_panel::<PlanPanel>(window, cx);
