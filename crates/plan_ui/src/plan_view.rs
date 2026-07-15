@@ -432,12 +432,22 @@ impl PlanView {
             .gap_2()
             .p_3()
             .child(sechead("TASKS", cx))
-            .children(
-                plan.tasks
-                    .iter()
-                    .enumerate()
-                    .map(|(index, task)| self.render_task_card(index, task, cx)),
-            )
+            .children(plan.tasks.iter().enumerate().map(|(index, task)| {
+                let card = self.render_task_card(index, task, cx);
+                // Commit rail (§9.1): a node per task on a left spine, from launch on.
+                if matches!(
+                    plan.status,
+                    Status::Executing | Status::Paused | Status::Gate | Status::Amending
+                ) {
+                    h_flex()
+                        .items_stretch()
+                        .child(rail_cell(task, cx))
+                        .child(div().flex_1().child(card))
+                        .into_any_element()
+                } else {
+                    card.into_any_element()
+                }
+            }))
     }
 
     /// Task card (compliance §7 / design-spec §3.5) with a flag affordance and its
@@ -498,7 +508,6 @@ impl PlanView {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .flex_wrap()
                     .child(render_checkbox(task, cx))
                     .child(
                         Label::new(format!("{}", index + 1))
@@ -515,7 +524,8 @@ impl PlanView {
                     } else {
                         Label::new(title).into_any_element()
                     })
-                    // Chips in mockup order: ticket · system · guard · sha · tests.
+                    // Chips right-aligned (mockup): ticket · system · guard · sha · tests.
+                    .child(div().flex_1())
                     .when_some(task.ticket.clone(), |row, ticket| {
                         row.child(crate::mono_chip(ticket, colors.text_accent, cx))
                     })
@@ -535,7 +545,6 @@ impl PlanView {
                     .when(task.artifacts.tests.is_some(), |row| {
                         row.child(chip("✓ tests", status.created))
                     })
-                    .child(div().flex_1())
                     .child(
                         Button::new(SharedString::from(format!("flag-{block}")), "⚑").on_click(
                             cx.listener(move |this, _, _window, cx| {
@@ -1188,6 +1197,50 @@ fn render_checkbox(task: &Task, cx: &App) -> AnyElement {
         TaskStatus::Interrupted => cb_box(status.modified, None, "⚠", status.modified),
         TaskStatus::Skipped => cb_box(colors.border, None, "–", colors.text_muted),
         TaskStatus::Pending => cb_box(colors.border, None, "", colors.text_muted),
+    }
+}
+
+/// A commit-rail cell (§9.1): a fixed-width left column with a status node on top
+/// of a vertical spine that fills the row, forming a continuous timeline.
+fn rail_cell(task: &Task, cx: &App) -> impl IntoElement {
+    v_flex()
+        .w(px(22.))
+        .flex_none()
+        .items_center()
+        .pt_2()
+        .gap_1()
+        .child(rail_node(task, cx))
+        .child(
+            div()
+                .w(px(2.))
+                .flex_1()
+                .bg(cx.theme().colors().border_variant),
+        )
+}
+
+/// A commit-rail node colored by task state (§8): hollow pending · accent
+/// committed/running · success done · error failed · amber gate.
+fn rail_node(task: &Task, cx: &App) -> AnyElement {
+    let colors = cx.theme().colors();
+    let status = cx.theme().status();
+    let circle = |border: Hsla, fill: Option<Hsla>| {
+        h_flex()
+            .size(px(11.))
+            .flex_none()
+            .rounded_full()
+            .border_1()
+            .border_color(border)
+            .when_some(fill, |node, fill| node.bg(fill))
+    };
+    if task.gate && task.status == TaskStatus::Pending {
+        return circle(status.modified, None).into_any_element();
+    }
+    match task.status {
+        TaskStatus::InProgress => circle(colors.text_accent, Some(colors.text_accent))
+            .into_any_element(),
+        TaskStatus::Done => circle(status.created, Some(status.created)).into_any_element(),
+        TaskStatus::Failed => circle(status.deleted, Some(status.deleted)).into_any_element(),
+        _ => circle(colors.border, None).into_any_element(),
     }
 }
 
