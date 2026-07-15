@@ -161,6 +161,82 @@ fn policy_json_overrides_defaults() {
     assert_eq!(policy.criteria_link_tasks, Severity::Warn);
 }
 
+fn plan_lint_comments(plan: &Plan) -> Vec<&plan_core::Comment> {
+    plan.comments
+        .iter()
+        .filter(|comment| comment.author.as_deref() == Some("plan-lint"))
+        .collect()
+}
+
+fn unlinked_task_plan() -> Plan {
+    plan(serde_json::json!({
+        "schema_version": 1, "id": "P", "title": "t", "status": "in_review", "rev": 1,
+        "thread": "a", "spec": { "goal": "g" },
+        "tasks": [{ "id": "t1", "system": "backend", "acceptance": [] }]
+    }))
+}
+
+#[test]
+fn reconcile_adds_a_plan_lint_comment_per_finding() {
+    let mut plan = unlinked_task_plan();
+    let findings = lint::lint(&plan, &Policy::default(), None);
+    let before = plan.rev;
+    assert!(lint::reconcile(&mut plan, &findings));
+
+    let lint_comments = plan_lint_comments(&plan);
+    assert_eq!(lint_comments.len(), 1);
+    let comment = lint_comments[0];
+    assert_eq!(comment.severity.as_deref(), Some("blocker"));
+    assert_eq!(comment.state.as_deref(), Some("open"));
+    assert_eq!(
+        comment.anchor.as_ref().and_then(|a| a.block.as_deref()),
+        Some("t1")
+    );
+    assert!(plan.rev > before);
+}
+
+#[test]
+fn reconcile_clears_findings_that_no_longer_fire() {
+    let mut plan = unlinked_task_plan();
+    let findings = lint::lint(&plan, &Policy::default(), None);
+    lint::reconcile(&mut plan, &findings);
+    assert_eq!(plan_lint_comments(&plan).len(), 1);
+
+    // The issue is fixed → no findings → the plan-lint comment is cleared.
+    assert!(lint::reconcile(&mut plan, &[]));
+    assert!(plan_lint_comments(&plan).is_empty());
+}
+
+#[test]
+fn reconcile_never_touches_user_or_agent_comments() {
+    let mut plan = unlinked_task_plan();
+    plan.comments.push(
+        serde_json::from_value(serde_json::json!({
+            "id": "c1", "author": "user", "severity": "concern", "state": "open",
+            "anchor": { "block": "t1" }, "thread": [{ "author": "user", "text": "hmm" }]
+        }))
+        .unwrap(),
+    );
+    let findings = lint::lint(&plan, &Policy::default(), None);
+    lint::reconcile(&mut plan, &findings);
+    // Clearing lint findings must leave the user comment intact.
+    lint::reconcile(&mut plan, &[]);
+    assert_eq!(plan.comments.len(), 1);
+    assert_eq!(plan.comments[0].author.as_deref(), Some("user"));
+}
+
+#[test]
+fn reconcile_is_idempotent() {
+    let mut plan = unlinked_task_plan();
+    let findings = lint::lint(&plan, &Policy::default(), None);
+    assert!(lint::reconcile(&mut plan, &findings));
+    let rev_after_first = plan.rev;
+    // Re-running with the same findings changes nothing (no rev churn).
+    assert!(!lint::reconcile(&mut plan, &findings));
+    assert_eq!(plan.rev, rev_after_first);
+    assert_eq!(plan_lint_comments(&plan).len(), 1);
+}
+
 #[test]
 fn store_helpers_are_reachable() {
     // Sanity: the fixture round-trips (guards against schema drift in lint fixtures).

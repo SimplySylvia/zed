@@ -7,9 +7,14 @@
 //! Structural referential-integrity checks live separately in
 //! [`crate::schema::Plan::validate`]; this module is the *policy* layer.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::Plan;
+use crate::schema::{Anchor, Comment, HistoryEntry, ThreadEntry};
+
+/// The author stamped on lint-generated comments (F9.1).
+const LINT_AUTHOR: &str = "plan-lint";
 
 /// A rule's configured severity. `Off` disables the rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -211,4 +216,104 @@ pub fn lint(plan: &Plan, policy: &Policy, repo_root: Option<&Path>) -> Vec<Findi
     // - git-format rules (F10.1): enforced at the commit-time hook (M7).
 
     findings
+}
+
+/// Deterministic id for the comment a finding produces, so re-runs update in
+/// place instead of duplicating.
+fn finding_comment_id(finding: &Finding) -> String {
+    format!(
+        "lint-{}-{}",
+        finding.rule_id,
+        finding.block.as_deref().unwrap_or("_")
+    )
+}
+
+fn lint_message(text: &str) -> ThreadEntry {
+    ThreadEntry {
+        author: Some(LINT_AUTHOR.to_string()),
+        text: Some(text.to_string()),
+        action: None,
+        rev: None,
+        cites: vec![],
+        pushback: None,
+        extra: Default::default(),
+    }
+}
+
+/// Idempotently sync `plan-lint`-authored comments to `findings` (F9.1): add a
+/// comment per new finding, refresh one whose message/severity drifted, and clear
+/// plan-lint comments whose finding no longer fires (so fixing an issue removes
+/// its flag). `user`/`agent` comments are never touched. Rev-bumps + stamps
+/// history only when something changed; returns whether it did.
+pub fn reconcile(plan: &mut Plan, findings: &[Finding]) -> bool {
+    let desired: BTreeMap<String, &Finding> = findings
+        .iter()
+        .map(|finding| (finding_comment_id(finding), finding))
+        .collect();
+    let mut changed = false;
+
+    let before = plan.comments.len();
+    plan.comments.retain(|comment| {
+        comment.author.as_deref() != Some(LINT_AUTHOR) || desired.contains_key(&comment.id)
+    });
+    if plan.comments.len() != before {
+        changed = true;
+    }
+
+    for (id, finding) in &desired {
+        let severity = finding.severity.comment_severity();
+        let existing = plan
+            .comments
+            .iter_mut()
+            .find(|comment| &comment.id == id && comment.author.as_deref() == Some(LINT_AUTHOR));
+        match existing {
+            Some(comment) => {
+                let current_text = comment.thread.first().and_then(|message| message.text.clone());
+                if comment.severity.as_deref() != Some(severity)
+                    || current_text.as_deref() != Some(finding.message.as_str())
+                {
+                    comment.severity = Some(severity.to_string());
+                    comment.thread = vec![lint_message(&finding.message)];
+                    changed = true;
+                }
+            }
+            None => {
+                plan.comments.push(Comment {
+                    id: id.clone(),
+                    kind: Some("flag".to_string()),
+                    author: Some(LINT_AUTHOR.to_string()),
+                    severity: Some(severity.to_string()),
+                    anchor: finding.block.as_ref().map(|block| Anchor {
+                        lens: Some("tasks".to_string()),
+                        block: Some(block.clone()),
+                        range: None,
+                        quote: None,
+                        code_refs: vec![],
+                        extra: Default::default(),
+                    }),
+                    outdated: false,
+                    suggestion: None,
+                    alternatives: None,
+                    thread: vec![lint_message(&finding.message)],
+                    state: Some("open".to_string()),
+                    caused_changes: vec![],
+                    extra: Default::default(),
+                });
+                changed = true;
+            }
+        }
+    }
+
+    if changed {
+        plan.rev += 1;
+        plan.history.push(HistoryEntry {
+            rev: Some(plan.rev),
+            by: Some(LINT_AUTHOR.to_string()),
+            kind: Some("lint".to_string()),
+            summary: Some(format!("{} lint finding(s)", desired.len())),
+            at: None,
+            extra: Default::default(),
+        });
+    }
+    changed
 }
