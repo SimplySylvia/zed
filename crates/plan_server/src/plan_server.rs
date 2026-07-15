@@ -101,6 +101,26 @@ struct UpdateSectionArgs {
     value: serde_json::Value,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ListCommentsArgs {
+    id: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ReplyCommentArgs {
+    id: String,
+    comment_id: String,
+    text: String,
+    /// Optional agent action: revised | pushback | answered.
+    action: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct CommentRefArgs {
+    id: String,
+    comment_id: String,
+}
+
 #[derive(Clone)]
 struct PlanServer {
     // Read by the `#[tool_handler]`-generated routing code.
@@ -202,6 +222,55 @@ impl PlanServer {
         Parameters(args): Parameters<UpdateSectionArgs>,
     ) -> Result<String, ErrorData> {
         let plan = tools::update_section(&plans_dir(), &args.id, &args.section, args.value)
+            .map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// List the plan's open/sent comments (with re-anchor status) for review.
+    #[tool(description = "List open/sent review comments on a plan")]
+    async fn plan_list_comments(
+        &self,
+        Parameters(args): Parameters<ListCommentsArgs>,
+    ) -> Result<String, ErrorData> {
+        let value = tools::list_comments(&plans_dir(), &args.id).map_err(to_error)?;
+        serde_json::to_string_pretty(&value).map_err(to_error)
+    }
+
+    /// Reply to a review comment (optionally recording revised/pushback/answered).
+    #[tool(description = "Reply to a review comment")]
+    async fn plan_reply_comment(
+        &self,
+        Parameters(args): Parameters<ReplyCommentArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::reply_comment(
+            &plans_dir(),
+            &args.id,
+            &args.comment_id,
+            &args.text,
+            args.action.as_deref(),
+        )
+        .map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Mark a review comment addressed.
+    #[tool(description = "Mark a review comment addressed")]
+    async fn plan_mark_addressed(
+        &self,
+        Parameters(args): Parameters<CommentRefArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::mark_addressed(&plans_dir(), &args.id, &args.comment_id)
+            .map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Apply a suggestion's replacement to its anchored block.
+    #[tool(description = "Apply a suggested edit to its anchored block")]
+    async fn plan_apply_suggestion(
+        &self,
+        Parameters(args): Parameters<CommentRefArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::apply_suggestion(&plans_dir(), &args.id, &args.comment_id)
             .map_err(to_error)?;
         serde_json::to_string_pretty(&plan).map_err(to_error)
     }

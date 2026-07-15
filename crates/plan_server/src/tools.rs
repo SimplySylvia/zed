@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-use plan_core::{HistoryEntry, Plan, Status, Task, TaskStatus, TimelineEntry, store};
+use plan_core::{HistoryEntry, Plan, Status, Task, TaskStatus, TimelineEntry, anchor, comments, store};
 
 /// Create a new draft plan and persist it atomically. The plan starts in
 /// `drafting` at rev 1 with an empty spec/design/tasks; the agent fills it in
@@ -189,4 +189,66 @@ fn as_str_vec(value: &serde_json::Value) -> Result<Vec<String>> {
                 .ok_or_else(|| anyhow::anyhow!("array must contain only strings"))
         })
         .collect()
+}
+
+/// Open/sent comments as a summary array (with re-anchor status) for the agent.
+pub fn list_comments(plans_dir: &Path, id: &str) -> Result<serde_json::Value> {
+    let plan = store::load(plans_dir, id)?;
+    let items: Vec<serde_json::Value> = plan
+        .comments
+        .iter()
+        .filter(|comment| matches!(comment.state.as_deref(), Some("open") | Some("sent")))
+        .map(|comment| {
+            let reanchor = comment
+                .anchor
+                .as_ref()
+                .map(|a| format!("{:?}", anchor::reanchor(a, &plan)));
+            serde_json::json!({
+                "id": comment.id,
+                "kind": comment.kind,
+                "severity": comment.severity,
+                "state": comment.state,
+                "block": comment.anchor.as_ref().and_then(|a| a.block.clone()),
+                "reanchor": reanchor,
+                "text": comment.thread.first().and_then(|message| message.text.clone()),
+            })
+        })
+        .collect();
+    Ok(serde_json::Value::Array(items))
+}
+
+/// Append an agent reply to a comment's thread.
+pub fn reply_comment(
+    plans_dir: &Path,
+    id: &str,
+    comment_id: &str,
+    text: &str,
+    action: Option<&str>,
+) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    if !comments::reply(&mut plan, comment_id, "agent", text, action) {
+        anyhow::bail!("no comment {comment_id}");
+    }
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
+/// Mark a comment addressed.
+pub fn mark_addressed(plans_dir: &Path, id: &str, comment_id: &str) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    if !comments::set_comment_state(&mut plan, comment_id, "addressed") {
+        anyhow::bail!("no comment {comment_id}");
+    }
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
+/// Apply a suggestion's replacement to its anchored block.
+pub fn apply_suggestion(plans_dir: &Path, id: &str, comment_id: &str) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    if !comments::apply_suggestion(&mut plan, comment_id) {
+        anyhow::bail!("could not apply suggestion {comment_id}");
+    }
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
 }
