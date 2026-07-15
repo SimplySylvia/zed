@@ -1,9 +1,11 @@
 # M5c · Review loop — the policy.json lint engine — milestone note
 
-**Status:** code complete, `plan_core` + `plan_server` + `plan_ui` + full `zed` build green;
-**§13 visual verification under One Dark is the outstanding developer gate** (run "Lint" on a
-plan with a violation → a plan-lint blocker comment appears with its rule id, the ⚑ chip counts
-it, Approve is gated; fix + re-lint clears it). **M5c closes the M5 review-loop milestone.**
+**Status:** COMPLETE. `plan_core` + `plan_server` + `plan_ui` + full `zed` build green;
+**§13 visual verification under One Dark confirmed by the developer (2026-07-15)** — clicking
+Lint on a plan with a violation surfaces a `plan-lint` blocker comment with its rule id, the ⚑
+chip counts it, and Approve is gated; the values (rule ids / severities / blocks / messages) and
+the gate state were verified against the saved plan.json. **M5c closes the M5 review-loop
+milestone.** Deviations (below) remain.
 
 **Feature IDs:** F9.1 (plan lint — policy rules, auto-flags authored `plan-lint`, blocker
 severity gates Approve), F6.2 (`plan_lint`). Deferred by design: F2.4f `ticket-coverage` (M8),
@@ -56,6 +58,11 @@ Single source of rule truth: `plan_core::lint`, no server/UI duplication (per th
   render under their task). Spec-lens finding rendering → fidelity.
 - **Lint blockers aren't manually resolvable** in the UI (✓ resolve is user/agent-only) — they
   clear by fixing + re-linting (F9.1). An explicit lint *waiver* path (F2.4f) is future work.
+- **"Send for revision" sweeps plan-lint comments too** (observed during §13) — `mark_sent_batch`
+  moves *all* open comments `open → sent`, including machine-authored `plan-lint` flags. Harmless
+  (they still gate — `sent != resolved` — and re-lint still clears them when fixed), but ideally
+  batch-send would skip `author == "plan-lint"`. Deferred polish, alongside the M5b auto-resolve
+  question.
 
 **§13 protocol (developer, under One Dark):**
 1. Open a plan with a violation (e.g. a backend task with no linked acceptance, or >8 files) →
@@ -78,7 +85,7 @@ unchanged.
 - [x] Tab: Lint action flags a violation as a plan-lint blocker (with rule id) → gate reacts.
 - [x] Builds green (`plan_core`/`plan_server`/`plan_ui`/`zed`); clippy clean; pure logic test-first.
 - [x] `docs/milestones/M5c.md` written; FORK_DIFF unchanged.
-- [ ] **§13 visual verification under One Dark** — developer gate (protocol above).
+- [x] **§13 visual verification under One Dark** — confirmed by the developer (2026-07-15).
 
 ## Next: M6 — Execution (M5 review loop is complete)
 Launch flow + ExitPlanMode integration, per-task loop enforcement (hooks hard-block no-plan

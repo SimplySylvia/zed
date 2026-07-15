@@ -3,7 +3,7 @@
 **How to use:** point a fresh agent at this file (or paste the brief below). It's the kickoff
 for continuing the **Plan** feature. Kept current at the end of each session.
 
-_Last updated: after M5b (2026-07-15). On branch `plan`._
+_Last updated: after M5c (2026-07-15) — the M5 review loop is complete. On branch `plan`._
 
 ---
 
@@ -18,13 +18,14 @@ results, deferred backlog). Confirm you've read Part III + the milestone notes b
 proposing anything.
 
 ### Status
-M0–M4, M5a and M5b are **complete and visually verified**. Crates:
-- `plan_core` — schema / store / validate / **anchor** (fuzzy re-anchoring) / **comments** /
-  **rev** (staged-revision stage/apply/reject/resolve).
+M0–M4 and **all of M5 (5a comments · 5b staged revisions · 5c lint)** are **complete and
+visually verified** — the review loop is done. Crates:
+- `plan_core` — schema / store / validate / **anchor** / **comments** / **rev** (staged-revision
+  stage/apply/reject/resolve) / **lint** (policy.json engine + reconcile).
 - `plan_server` — Rust `rmcp` MCP server + Claude Code hooks; reuses `plan_core`. Review +
-  **`plan_propose_revision`** tools.
-- `plan_ui` — Plan tab + status pill + dock panel + review UI + **staged-revision change cards
-  + Approve gating**.
+  **`plan_propose_revision`** + **`plan_lint`** tools.
+- `plan_ui` — Plan tab + status pill + dock panel + review UI + **staged-revision cards +
+  Approve gating + Lint action**.
 - `plan-agent/` — planning skill + hooks wiring + Claude Code settings fragment.
 
 Upstream footprint is only the M0 registration lines + the M4 pill line — all tracked in
@@ -46,21 +47,25 @@ docs are silent/contradictory. All `plan_ui` work is governed by the `plan-ui-de
 (PRD §14); flag v1 pulls instead of building them.
 
 ### Next up
-- **M5c** — the `.plans/policy.json` lint engine (Appendix B) as `plan_core::lint`, reused by
-  the server: every-task-has-tests · criteria-link-tasks · files-must-exist · prod-requires-gate
-  · max-files-per-task · ticket-coverage + git format rules; agent auto-fixes what it can, the
-  rest become auto-flags (author: plan-lint). **Blocker-severity findings gate Approve — wire
-  into the F3.6 gating already built in M5b** (`open_blocker_count`/`approve_enabled` in
-  `plan_ui::plan_view`). This closes out the M5 review-loop milestone.
-- Then **M6** execution · **M7** git · **M8** tickets · **M9** settings + hardening.
+- **M6 — Execution.** Launch flow + ExitPlanMode integration (Launch enabled from `approved` —
+  the M5b/M5c Approve gate is the on-ramp), per-task loop enforcement (hooks hard-block no-plan
+  edits + guard holds), GATE tasks + step guards with input capture (F4.5/F4.5b), amendments as
+  staged diffs **reusing `plan_core::rev`** (F4.7), failure-ladder counters (F11.4),
+  pause/resume/stop + kill (F5.1/F5.6), interrupted-task recovery (F11.1).
+- Then **M7** git · **M8** tickets (incl. `ticket-coverage` lint, wired as a no-op in
+  `plan_core::lint`) · **M9** settings + hardening (git-format lint lands with M7's commit hook).
 
-**Start by writing the M5c plan for the user's sign-off — no code until approved.**
+**Start by writing the M6 plan for the user's sign-off — no code until approved.**
 
-M5b left these for later (recorded in `docs/milestones/M5b.md`): staged-revision **mini-buffers**
-(real editor-diff rendering vs the current GPUI chrome), **pushback UI** (F3.4c), inline **Δ
-chips** (F3.5), **acceptance-criterion revision targets** (`set_block_text` writes task/step
-only), and the **auto-resolve question** — should applying a hunk `from` a blocker auto-`resolve`
-that comment (F3.4d nuance) rather than mark it `addressed`?
+### Deferred backlog from M5 (recorded in the milestone notes)
+- **M5b:** staged-revision **mini-buffers** (real editor-diff vs the current GPUI chrome),
+  **pushback UI** (F3.4c), inline **Δ chips** (F3.5), **acceptance-criterion revision targets**
+  (`set_block_text` writes task/step only), and the **auto-resolve question** (should applying a
+  hunk `from` a blocker auto-`resolve` it rather than mark `addressed`?).
+- **M5c:** the dedicated **§6 Lint card** (auto-fixed dimming, inline fix buttons) + **Spec-lens
+  finding rendering**; **`prod-requires-gate`** (needs a prod signal — revisit in M6/M7); a lint
+  **waiver** path (F2.4f); and batch-send should **skip `plan-lint` comments** (currently sweeps
+  them `open → sent`).
 
 ### Build / run
 Every build needs:
