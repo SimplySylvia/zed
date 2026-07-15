@@ -277,6 +277,52 @@ pub fn launch(plans_dir: &Path, id: &str, thread: &str) -> Result<Plan> {
     Ok(plan)
 }
 
+/// Pause execution (F5.1).
+pub fn pause(plans_dir: &Path, id: &str) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    exec::pause(&mut plan)?;
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
+/// Resume a paused plan (F5.1).
+pub fn resume(plans_dir: &Path, id: &str) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    exec::resume(&mut plan)?;
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
+/// Stop / kill execution (F5.1/F5.6): halt + release the lease.
+pub fn stop(plans_dir: &Path, id: &str) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    exec::stop(&mut plan)?;
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
+/// Propose an amendment (F4.7): a staged plan change during execution, recorded
+/// against `task` for the failure ladder.
+pub fn propose_amendment(
+    plans_dir: &Path,
+    id: &str,
+    task: &str,
+    hunks: Vec<HunkSpec>,
+) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    exec::propose_amendment(&mut plan, task, hunks)?;
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
+/// Recover an interrupted task (F11.1): choice ∈ resume|redo|manual.
+pub fn recover_task(plans_dir: &Path, id: &str, task: &str, choice: &str) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    exec::recover_task(&mut plan, task, choice)?;
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
 /// Mark a step guard as holding (F4.5b) — the agent calls this when it reaches a
 /// guarded step, so the PreToolUse hook blocks until the user clears it.
 pub fn hold_guard(plans_dir: &Path, id: &str, task: &str, step: &str) -> Result<Plan> {

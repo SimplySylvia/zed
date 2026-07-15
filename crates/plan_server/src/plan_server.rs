@@ -136,6 +136,22 @@ struct GuardRefArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+struct AmendmentArgs {
+    id: String,
+    /// The failing task this amendment responds to (failure ladder, F11.4).
+    task: String,
+    hunks: Vec<HunkArg>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct RecoverArgs {
+    id: String,
+    task: String,
+    /// resume | redo | manual (F11.1).
+    choice: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct ClearGuardArgs {
     id: String,
     task: String,
@@ -353,6 +369,68 @@ impl PlanServer {
         Parameters(args): Parameters<PlanLaunchArgs>,
     ) -> Result<String, ErrorData> {
         let plan = tools::launch(&plans_dir(), &args.id, &args.thread).map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Pause execution (F5.1).
+    #[tool(description = "Pause execution (executing → paused, lease kept)")]
+    async fn plan_pause(
+        &self,
+        Parameters(args): Parameters<PlanGetArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::pause(&plans_dir(), &args.id).map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Resume a paused plan (F5.1).
+    #[tool(description = "Resume a paused plan (paused → executing)")]
+    async fn plan_resume(
+        &self,
+        Parameters(args): Parameters<PlanGetArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::resume(&plans_dir(), &args.id).map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Stop / kill execution (F5.1/F5.6).
+    #[tool(description = "Stop execution: halt to paused and release the lease")]
+    async fn plan_stop(
+        &self,
+        Parameters(args): Parameters<PlanGetArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::stop(&plans_dir(), &args.id).map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Propose an amendment during execution (F4.7).
+    #[tool(description = "Propose an amendment (staged plan change) for a failing task")]
+    async fn plan_propose_amendment(
+        &self,
+        Parameters(args): Parameters<AmendmentArgs>,
+    ) -> Result<String, ErrorData> {
+        let hunks = args
+            .hunks
+            .into_iter()
+            .map(|hunk| plan_core::rev::HunkSpec {
+                target: hunk.target,
+                old: hunk.old,
+                new: hunk.new,
+                from: hunk.from,
+            })
+            .collect();
+        let plan = tools::propose_amendment(&plans_dir(), &args.id, &args.task, hunks)
+            .map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Recover an interrupted task (F11.1).
+    #[tool(description = "Recover an interrupted task (choice: resume | redo | manual)")]
+    async fn plan_recover_task(
+        &self,
+        Parameters(args): Parameters<RecoverArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::recover_task(&plans_dir(), &args.id, &args.task, &args.choice)
+            .map_err(to_error)?;
         serde_json::to_string_pretty(&plan).map_err(to_error)
     }
 

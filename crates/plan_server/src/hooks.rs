@@ -132,6 +132,29 @@ fn hold_reason(plan: &Plan, hold: &exec::Hold) -> String {
     }
 }
 
+/// Stop loop guard (F6.3, lean): while a plan is `executing` with unfinished,
+/// unheld tasks, nudge the agent to continue rather than stop. `stop_hook_active`
+/// is Claude Code's flag that the stop already resulted from a hook nudge — the
+/// runaway guard, so we don't nudge again. Returns the nudge reason, or `None` to
+/// allow the stop.
+pub fn stop_loop_guard(plans_dir: &Path, stop_hook_active: bool) -> Option<String> {
+    if stop_hook_active {
+        return None;
+    }
+    let plan = active_plan(plans_dir)?;
+    if plan.status != Status::Executing || exec::current_hold(&plan).is_some() {
+        return None;
+    }
+    let remaining = plan
+        .tasks
+        .iter()
+        .filter(|task| matches!(task.status, TaskStatus::Pending | TaskStatus::InProgress))
+        .count();
+    (remaining > 0).then(|| {
+        format!("{remaining} task(s) remain in the executing plan — continue them, or pause the plan in the Plan panel")
+    })
+}
+
 /// Dispatch a hook event to its decision: returns `(stdout JSON, exit code)`.
 pub fn run(event: &str, input: &Value, plans_dir: &Path) -> (String, i32) {
     match event {
@@ -153,9 +176,16 @@ pub fn run(event: &str, input: &Value, plans_dir: &Path) -> (String, i32) {
                 Err(reason) => (deny(&reason), 0),
             }
         }
-        // Stop: M2 placeholder — allow the agent to stop. A real loop guard
-        // (nudge-to-continue with runaway protection) arrives with execution (M6).
-        "Stop" => (String::new(), 0),
+        "Stop" => {
+            let active = input
+                .get("stop_hook_active")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            match stop_loop_guard(plans_dir, active) {
+                Some(reason) => (json!({ "decision": "block", "reason": reason }).to_string(), 0),
+                None => (String::new(), 0),
+            }
+        }
         _ => (String::new(), 0),
     }
 }
