@@ -1,7 +1,8 @@
 # M5a · Review loop — comments round-trip — milestone note
 
-**Status:** code complete; `plan_ui` + full `zed` build green. **§13 visual verification under
-One Dark pending developer confirmation.**
+**Status:** COMPLETE. `plan_ui` + full `zed` build green; **§13 visual verification under One
+Dark confirmed by the developer (2026-07-14)** — clicking ⚑ on a task adds an anchored comment
+row and bumps "Send for revision · n"; Send flips comments to sent. Deviations (below) remain.
 
 **Feature IDs:** F3.1 (anchors), F3.2a/b/d (comment/suggest/flag), F3.3 (severity), F3.4
 (batch → revision), F6.2 (review tools). Alternatives (F3.2c) + Approve gating (F3.6) → 5b.
@@ -46,7 +47,7 @@ tools; `plan_ui` writes `plan.json` via `plan_core`. **No upstream files touched
 - [x] Review MCP tools present + correct (4).
 - [x] Tab: flag a task → persists → thread renders → `list_comments` sees it; batch-send works.
 - [x] Builds green; pure logic test-first.
-- [ ] **§13 visual verification under One Dark** — pending developer confirmation.
+- [x] **§13 visual verification under One Dark** — confirmed by developer (2026-07-14).
 - [x] `docs/milestones/M5a.md` written; FORK_DIFF unchanged.
 
 ## Next: M5b — staged revisions
