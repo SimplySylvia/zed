@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::Plan;
+use crate::rev::{self, HunkSpec};
 use crate::schema::{Evidence, Executor, Guard, HistoryEntry, Status, TaskStatus};
 
 fn bump(plan: &mut Plan, by: &str, kind: &str, summary: String) {
@@ -243,4 +244,111 @@ pub fn command_guard_cleared(plan: &Plan, pattern: &str) -> bool {
                     .as_deref()
                     .is_some_and(|prompt| prompt.contains(pattern))
         })
+}
+
+// ── Control (F5.1/F5.6), amendments (F4.7), failure ladder (F11.4), recovery (F11.1) ──
+
+/// Pause execution (F5.1): `executing → paused`, keeping the lease so the same
+/// thread can resume.
+pub fn pause(plan: &mut Plan) -> Result<()> {
+    if plan.status != Status::Executing {
+        bail!("plan {} is {:?}, not executing", plan.id, plan.status);
+    }
+    plan.status = Status::Paused;
+    bump(plan, "user", "paused", "paused".to_string());
+    Ok(())
+}
+
+/// Resume a paused plan (F5.1): `paused → executing`.
+pub fn resume(plan: &mut Plan) -> Result<()> {
+    if plan.status != Status::Paused {
+        bail!("plan {} is {:?}, not paused", plan.id, plan.status);
+    }
+    plan.status = Status::Executing;
+    bump(plan, "user", "resumed", "resumed".to_string());
+    Ok(())
+}
+
+/// Stop / kill execution (F5.1/F5.6): a hard halt to `paused` that releases the
+/// lease (resumable via launch/resume). Kill == stop for MVP.
+pub fn stop(plan: &mut Plan) -> Result<()> {
+    if !matches!(plan.status, Status::Executing | Status::Paused) {
+        bail!("plan {} is {:?}, not running", plan.id, plan.status);
+    }
+    plan.status = Status::Paused;
+    plan.executor = None;
+    bump(plan, "user", "stopped", "stopped — lease released".to_string());
+    Ok(())
+}
+
+/// Propose an amendment (F4.7): a staged plan change during execution — the same
+/// primitive as a staged revision (reuses [`rev::stage_revision`]), tagged so the
+/// UI renders an amendment card, and recorded against `task` for the failure
+/// ladder. Inert like staging — `rev` bumps only when the amendment is applied.
+pub fn propose_amendment(plan: &mut Plan, task: &str, specs: Vec<HunkSpec>) -> Result<()> {
+    if !plan.tasks.iter().any(|candidate| candidate.id == task) {
+        bail!("no task {task}");
+    }
+    rev::stage_revision(plan, specs);
+    if let Some(pending) = plan.pending_revision.as_mut() {
+        pending
+            .extra
+            .insert("kind".to_string(), serde_json::Value::String("amendment".to_string()));
+    }
+    plan.history.push(HistoryEntry {
+        rev: Some(plan.rev),
+        by: Some("agent".to_string()),
+        kind: Some("amendment".to_string()),
+        summary: Some(format!("amendment proposed for {task}")),
+        at: None,
+        extra: Default::default(),
+    });
+    Ok(())
+}
+
+/// How many amendments have been proposed against `task` (F11.4 failure ladder).
+pub fn amendment_count(plan: &Plan, task: &str) -> usize {
+    let summary = format!("amendment proposed for {task}");
+    plan.history
+        .iter()
+        .filter(|entry| {
+            entry.kind.as_deref() == Some("amendment")
+                && entry.summary.as_deref() == Some(summary.as_str())
+        })
+        .count()
+}
+
+/// Two amendments on one task raises the escalation card (F11.4).
+pub fn needs_escalation(plan: &Plan, task: &str) -> bool {
+    amendment_count(plan, task) >= 2
+}
+
+/// Mark a task interrupted (F11.1) — the recovery entry point (death *detection*
+/// is deferred; the agent/skill marks this on failure for now).
+pub fn mark_interrupted(plan: &mut Plan, task: &str) -> Result<()> {
+    match plan.tasks.iter_mut().find(|candidate| candidate.id == task) {
+        Some(target) => target.status = TaskStatus::Interrupted,
+        None => bail!("no task {task}"),
+    }
+    bump(plan, "agent", "interrupted", format!("task {task} interrupted"));
+    Ok(())
+}
+
+/// Recover an interrupted task (F11.1): `resume` (→ in_progress), `redo`
+/// (→ pending), or `manual` (→ skipped + `manual`).
+pub fn recover_task(plan: &mut Plan, task: &str, choice: &str) -> Result<()> {
+    let Some(target) = plan.tasks.iter_mut().find(|candidate| candidate.id == task) else {
+        bail!("no task {task}");
+    };
+    match choice {
+        "resume" => target.status = TaskStatus::InProgress,
+        "redo" => target.status = TaskStatus::Pending,
+        "manual" => {
+            target.status = TaskStatus::Skipped;
+            target.manual = true;
+        }
+        other => bail!("unknown recovery choice {other}"),
+    }
+    bump(plan, "user", "recovered", format!("recovered {task} — {choice}"));
+    Ok(())
 }

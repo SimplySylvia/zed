@@ -2,7 +2,8 @@
 //! F11.3), plus step guards + GATE holds (F4.5/F4.5b).
 
 use plan_core::exec;
-use plan_core::{Plan, Status};
+use plan_core::rev::HunkSpec;
+use plan_core::{Plan, Status, TaskStatus};
 
 fn plan(status: &str) -> Plan {
     serde_json::from_value(serde_json::json!({
@@ -166,4 +167,96 @@ fn release_lease_clears_the_executor() {
     exec::launch(&mut plan, "acp-1").unwrap();
     exec::release_lease(&mut plan);
     assert!(plan.executor.is_none());
+}
+
+// ── Control (F5.1/F5.6), amendments (F4.7), failure ladder (F11.4), recovery (F11.1) ──
+
+fn executing_with_lease() -> Plan {
+    let mut plan = plan("approved");
+    exec::launch(&mut plan, "acp-1").unwrap();
+    plan
+}
+
+#[test]
+fn pause_resume_stop_transitions() {
+    let mut plan = executing_with_lease();
+    exec::pause(&mut plan).unwrap();
+    assert_eq!(plan.status, Status::Paused);
+    assert!(plan.executor.is_some(), "pause keeps the lease");
+
+    exec::resume(&mut plan).unwrap();
+    assert_eq!(plan.status, Status::Executing);
+
+    exec::stop(&mut plan).unwrap();
+    assert_eq!(plan.status, Status::Paused);
+    assert!(plan.executor.is_none(), "stop releases the lease");
+}
+
+#[test]
+fn illegal_control_transitions_error() {
+    let mut plan = plan("drafting");
+    assert!(exec::pause(&mut plan).is_err());
+    assert!(exec::resume(&mut plan).is_err());
+    assert!(exec::stop(&mut plan).is_err());
+}
+
+#[test]
+fn propose_amendment_stages_a_tagged_pending_revision() {
+    let mut plan = executing_with_lease();
+    exec::propose_amendment(
+        &mut plan,
+        "t1",
+        vec![HunkSpec {
+            target: Some("t1".into()),
+            old: None,
+            new: Some("Accept page params, clamped".into()),
+            from: None,
+        }],
+    )
+    .unwrap();
+    let pending = plan.pending_revision.as_ref().expect("staged");
+    assert_eq!(pending.hunks.len(), 1);
+    assert_eq!(pending.extra.get("kind").and_then(|v| v.as_str()), Some("amendment"));
+    assert!(plan.history.iter().any(|h| h.kind.as_deref() == Some("amendment")));
+}
+
+#[test]
+fn failure_ladder_escalates_at_two_amendments() {
+    let mut plan = executing_with_lease();
+    let spec = || {
+        vec![HunkSpec {
+            target: Some("t1".into()),
+            old: None,
+            new: Some("x".into()),
+            from: None,
+        }]
+    };
+    exec::propose_amendment(&mut plan, "t1", spec()).unwrap();
+    assert_eq!(exec::amendment_count(&plan, "t1"), 1);
+    assert!(!exec::needs_escalation(&plan, "t1"));
+
+    exec::propose_amendment(&mut plan, "t1", spec()).unwrap();
+    assert_eq!(exec::amendment_count(&plan, "t1"), 2);
+    assert!(exec::needs_escalation(&plan, "t1"));
+    // A different task isn't escalated.
+    assert!(!exec::needs_escalation(&plan, "t2"));
+}
+
+#[test]
+fn recover_task_choices_set_the_right_state() {
+    let mut plan = executing_with_lease();
+    exec::mark_interrupted(&mut plan, "t1").unwrap();
+    assert_eq!(plan.tasks[0].status, TaskStatus::Interrupted);
+
+    exec::recover_task(&mut plan, "t1", "resume").unwrap();
+    assert_eq!(plan.tasks[0].status, TaskStatus::InProgress);
+
+    exec::recover_task(&mut plan, "t1", "redo").unwrap();
+    assert_eq!(plan.tasks[0].status, TaskStatus::Pending);
+
+    exec::recover_task(&mut plan, "t1", "manual").unwrap();
+    assert!(plan.tasks[0].manual);
+    assert_eq!(plan.tasks[0].status, TaskStatus::Skipped);
+
+    assert!(exec::recover_task(&mut plan, "t1", "bogus").is_err());
 }
