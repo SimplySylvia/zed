@@ -13652,6 +13652,7 @@ dependencies = [
  "anyhow",
  "gpui",
  "plan_core",
+ "project",
  "ui",
  "workspace",
 ]

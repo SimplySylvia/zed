@@ -8,6 +8,8 @@
 use std::path::PathBuf;
 
 use agent_ui::{AgentPanel, AgentPanelEvent};
+use anyhow::Result;
+use project::Project;
 use gpui::{
     AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, Hsla, IntoElement,
     ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window, actions, px,
@@ -17,7 +19,7 @@ use ui::prelude::*;
 use ui::{Button, Indicator};
 use workspace::{
     Workspace,
-    item::{Item, ItemEvent, TabContentParams},
+    item::{Item, ItemEvent, SerializableItem, TabContentParams},
 };
 
 actions!(
@@ -57,8 +59,9 @@ pub struct PlanView {
 
 impl PlanView {
     /// Register the open action (and, later, the serializable item).
-    pub fn register(workspace: &mut Workspace, _cx: &mut Context<Workspace>) {
+    pub fn register(workspace: &mut Workspace, cx: &mut Context<Workspace>) {
         workspace.register_action(Self::open);
+        workspace::register_serializable_item::<PlanView>(cx);
     }
 
     fn open(workspace: &mut Workspace, _: &OpenPlan, window: &mut Window, cx: &mut Context<Workspace>) {
@@ -206,6 +209,70 @@ impl Item for PlanView {
 
     fn telemetry_event_text(&self) -> Option<&'static str> {
         Some("Plan Opened")
+    }
+}
+
+impl SerializableItem for PlanView {
+    fn serialized_item_kind() -> &'static str {
+        "PlanView"
+    }
+
+    fn cleanup(
+        _workspace_id: workspace::WorkspaceId,
+        _alive_items: Vec<workspace::ItemId>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> gpui::Task<Result<()>> {
+        // No per-item payload to prune (the binding is re-derived on restore).
+        gpui::Task::ready(Ok(()))
+    }
+
+    fn deserialize(
+        project: Entity<Project>,
+        workspace: WeakEntity<Workspace>,
+        _workspace_id: workspace::WorkspaceId,
+        _item_id: workspace::ItemId,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> gpui::Task<Result<Entity<Self>>> {
+        // Rebuild a fresh tab; `added_to_workspace` re-binds it to the restored
+        // active thread (F1.1 — the singleton follows the active thread anyway).
+        window.spawn(cx, async move |cx| {
+            cx.update(|_window, cx| {
+                let plans_dir = project
+                    .read(cx)
+                    .visible_worktrees(cx)
+                    .next()
+                    .map(|worktree| worktree.read(cx).abs_path().join(".plans"))
+                    .unwrap_or_else(|| PathBuf::from(".plans"));
+                cx.new(|cx| PlanView {
+                    focus_handle: cx.focus_handle(),
+                    workspace,
+                    plans_dir,
+                    thread_session: None,
+                    plan: None,
+                    lens: Lens::Tasks,
+                    _agent_subscription: None,
+                    _watch_task: None,
+                })
+            })
+        })
+    }
+
+    fn serialize(
+        &mut self,
+        _workspace: &mut Workspace,
+        _item_id: workspace::ItemId,
+        _closing: bool,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<gpui::Task<Result<()>>> {
+        // The workspace DB records that the tab exists; its binding is re-derived.
+        Some(gpui::Task::ready(Ok(())))
+    }
+
+    fn should_serialize(&self, _event: &Self::Event) -> bool {
+        false
     }
 }
 
