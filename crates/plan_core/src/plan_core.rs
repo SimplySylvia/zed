@@ -5,6 +5,7 @@
 //! lint engine, comment anchoring, and pending-revision apply/reject arrive in
 //! later milestones. See docs/PRD.md Appendix A and docs/milestones/.
 
+pub mod anchor;
 pub mod schema;
 pub mod store;
 
