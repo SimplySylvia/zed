@@ -17,7 +17,7 @@ use gpui::{
 };
 use plan_core::{
     Anchor, Comment, HistoryEntry, Hunk, Plan, Status, Step, Task, TaskStatus, anchor, comments,
-    rev, store,
+    lint, rev, store,
 };
 use ui::prelude::*;
 use ui::{Button, Indicator, Tooltip};
@@ -301,6 +301,10 @@ impl PlanView {
                 ))
             })
             .child(div().flex_1())
+            .child(
+                Button::new("run-lint", "Lint")
+                    .on_click(cx.listener(|this, _, _window, cx| this.run_lint(cx))),
+            )
             .when(open_comments > 0, |header| {
                 header.child(
                     Button::new(
@@ -560,6 +564,24 @@ impl PlanView {
         }
     }
 
+    /// Run policy lint from the UI (F9.1): reconcile findings into plan-lint
+    /// comments, writing plan.json directly. On-demand (not per-poll) to avoid
+    /// rev-churn; the agent runs it via the `plan_lint` tool.
+    fn run_lint(&mut self, cx: &mut Context<Self>) {
+        let Some(plan) = self.plan.as_ref() else {
+            return;
+        };
+        let id = plan.id.clone();
+        let Ok(mut fresh) = store::load(&self.plans_dir, &id) else {
+            return;
+        };
+        let policy = lint::Policy::load(&self.plans_dir);
+        let findings = lint::lint(&fresh, &policy, self.plans_dir.parent());
+        if lint::reconcile(&mut fresh, &findings) && store::save(&self.plans_dir, &fresh).is_ok() {
+            self.reload(cx);
+        }
+    }
+
     /// Approve the plan (F3.6). Guarded to zero open blockers even though the
     /// button is disabled, since the UI writes plan.json directly. Mirrors the
     /// server's rev+history stamping.
@@ -735,8 +757,14 @@ impl PlanView {
             .and_then(|message| message.text.clone())
             .unwrap_or_default();
         let state = comment.state.clone().unwrap_or_default();
-        let resolvable = comment.severity.as_deref() == Some("blocker") && state != "resolved";
+        let is_lint = comment.author.as_deref() == Some("plan-lint");
+        // Lint blockers clear by fixing the issue and re-linting, not by manual
+        // resolve — so the ✓ resolve affordance is offered only on user/agent flags.
+        let resolvable =
+            comment.severity.as_deref() == Some("blocker") && state != "resolved" && !is_lint;
+        let rule_id = if is_lint { lint_rule_id(comment) } else { None };
         let comment_id = comment.id.clone();
+        let muted = cx.theme().colors().text_muted;
         h_flex()
             .pl_4()
             .gap_2()
@@ -748,6 +776,7 @@ impl PlanView {
                     .size(LabelSize::Small)
                     .color(Color::Muted),
             )
+            .when_some(rule_id, |row, rule_id| row.child(chip(rule_id, muted)))
             .when(outdated, |row| {
                 row.child(
                     Label::new("outdated")
@@ -829,6 +858,18 @@ fn system_color(system: Option<&str>, cx: &App) -> Hsla {
         Some("testing") => theme.status().created,
         Some("gate") => theme.status().modified,
         _ => theme.colors().text_muted,
+    }
+}
+
+/// The rule id encoded in a plan-lint comment's deterministic id
+/// (`lint-<rule>-<block>`), for display (compliance §6 mono rule id).
+fn lint_rule_id(comment: &Comment) -> Option<String> {
+    let stripped = comment.id.strip_prefix("lint-")?;
+    match comment.anchor.as_ref().and_then(|anchor| anchor.block.as_deref()) {
+        Some(block) => stripped
+            .strip_suffix(&format!("-{block}"))
+            .map(str::to_string),
+        None => Some(stripped.to_string()),
     }
 }
 
@@ -1001,6 +1042,16 @@ mod tests {
         }));
         assert_eq!(open_blocker_count(&plan), 0);
         assert!(approve_enabled(&plan));
+    }
+
+    #[test]
+    fn lint_rule_id_parses_the_rule_from_the_comment_id() {
+        let comment: Comment = serde_json::from_value(serde_json::json!({
+            "id": "lint-max-files-per-task-t1", "author": "plan-lint",
+            "anchor": { "block": "t1" }
+        }))
+        .unwrap();
+        assert_eq!(lint_rule_id(&comment).as_deref(), Some("max-files-per-task"));
     }
 
     #[test]
