@@ -5,7 +5,7 @@
 //!
 //! All colors resolve through `cx.theme()` per docs/design/plan-ui-compliance.md.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use agent_ui::{AgentPanel, AgentPanelEvent};
 use anyhow::Result;
@@ -100,9 +100,7 @@ impl PlanView {
             .read(cx)
             .active_agent_thread(cx)
             .map(|thread| thread.read(cx).session_id().0.to_string());
-        self.plan = session
-            .as_deref()
-            .and_then(|session| store::find_by_thread(&self.plans_dir, session));
+        self.plan = resolve_plan(&self.plans_dir, session.as_deref());
         self.thread_session = session;
         if let Some(lens) = self.plan.as_ref().map(|plan| default_lens(&plan.status)) {
             self.lens = lens;
@@ -114,10 +112,7 @@ impl PlanView {
     /// the "watch the agent draft live" demo. M3 polls at 500ms (the §7 fallback);
     /// a proper fs watch is a later refinement.
     fn reload(&mut self, cx: &mut Context<Self>) {
-        let Some(session) = self.thread_session.clone() else {
-            return;
-        };
-        let fresh = store::find_by_thread(&self.plans_dir, &session);
+        let fresh = resolve_plan(&self.plans_dir, self.thread_session.as_deref());
         if fresh != self.plan {
             self.plan = fresh;
             cx.notify();
@@ -466,6 +461,21 @@ fn chip(text: impl Into<SharedString>, color: Hsla) -> impl IntoElement {
         .text_color(color)
         .text_size(px(10.))
         .child(text.into())
+}
+
+/// Resolve which plan the tab should show: the thread's plan (by ACP session
+/// id) if one matches, else — as a convenience before the thread binding is
+/// stamped — the sole plan in `.plans/` when there is exactly one.
+fn resolve_plan(plans_dir: &Path, session: Option<&str>) -> Option<Plan> {
+    if let Some(session) = session {
+        if let Some(plan) = store::find_by_thread(plans_dir, session) {
+            return Some(plan);
+        }
+    }
+    match store::list_plan_ids(plans_dir).as_slice() {
+        [only] => store::load(plans_dir, only).ok(),
+        _ => None,
+    }
 }
 
 /// The default lens for a status (F12.1: default lens follows status).
