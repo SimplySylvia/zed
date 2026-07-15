@@ -30,6 +30,35 @@ pub fn load(plans_dir: &Path, id: &str) -> Result<Plan> {
     serde_json::from_value(migrated).with_context(|| format!("deserializing {}", path.display()))
 }
 
+/// Enumerate plan ids in a directory (files named `<id>.plan.json`), sorted.
+/// Ignores backups, temp files, and anything else.
+pub fn list_plan_ids(plans_dir: &Path) -> Vec<String> {
+    let mut ids: Vec<String> = match fs::read_dir(plans_dir) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .strip_suffix(".plan.json")
+                    .map(String::from)
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    ids.sort();
+    ids
+}
+
+/// Find the plan owned by `thread` (F1.0: one thread ↔ one plan). Returns the
+/// first plan whose `thread` field matches, or `None`.
+pub fn find_by_thread(plans_dir: &Path, thread: &str) -> Option<Plan> {
+    list_plan_ids(plans_dir)
+        .into_iter()
+        .filter_map(|id| load(plans_dir, &id).ok())
+        .find(|plan| plan.thread == thread)
+}
+
 /// Persist a plan atomically: back up any existing revision, write to a temp
 /// file in the same directory, fsync it, then rename over the target. The
 /// rename is atomic within a filesystem, so a crash never leaves a torn file.
