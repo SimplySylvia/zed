@@ -330,6 +330,15 @@ impl PlanView {
                     .on_click(cx.listener(|this, _, _window, cx| this.send_for_revision(cx))),
                 )
             })
+            .when(
+                matches!(plan.status, Status::Executing | Status::Paused),
+                |header| {
+                    header.child(
+                        Button::new("stop", "⏹ Stop")
+                            .on_click(cx.listener(|this, _, _window, cx| this.stop_plan(cx))),
+                    )
+                },
+            )
             .child(self.render_primary(plan, blockers, cx))
     }
 
@@ -346,6 +355,16 @@ impl PlanView {
             // ▶ Launch (§9 matrix). Rehearsal-mismatch gating is v1 (F9.4).
             return Button::new("launch", "▶ Launch")
                 .on_click(cx.listener(|this, _, _window, cx| this.launch(cx)))
+                .into_any_element();
+        }
+        if plan.status == Status::Executing {
+            return Button::new("pause", "⏸ Pause")
+                .on_click(cx.listener(|this, _, _window, cx| this.pause_plan(cx)))
+                .into_any_element();
+        }
+        if plan.status == Status::Paused {
+            return Button::new("resume", "▶ Resume")
+                .on_click(cx.listener(|this, _, _window, cx| this.resume_plan(cx)))
                 .into_any_element();
         }
         if matches!(
@@ -491,6 +510,43 @@ impl PlanView {
             )
             .children(comment_rows)
             .children(self.guard_controls(task, cx))
+            .children(self.recovery_controls(task, cx))
+    }
+
+    /// Recovery affordance for an interrupted task (F11.1): Resume / Redo / Keep
+    /// manual.
+    fn recovery_controls(&self, task: &Task, cx: &Context<Self>) -> Vec<AnyElement> {
+        if task.status != TaskStatus::Interrupted {
+            return Vec::new();
+        }
+        let deleted = cx.theme().status().deleted;
+        let choices = [("Resume", "resume"), ("Redo", "redo"), ("Keep manual", "manual")];
+        let buttons = choices.map(|(label, choice)| {
+            let task_id = task.id.clone();
+            Button::new(
+                SharedString::from(format!("recover-{choice}-{}", task.id)),
+                label,
+            )
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                this.recover_task(&task_id, choice, cx)
+            }))
+        });
+        vec![
+            h_flex()
+                .ml_4()
+                .gap_2()
+                .p_2()
+                .rounded_md()
+                .border_1()
+                .border_color(deleted)
+                .child(
+                    Label::new("interrupted — recover:")
+                        .size(LabelSize::Small)
+                        .color(Color::Muted),
+                )
+                .children(buttons)
+                .into_any_element(),
+        ]
     }
 
     /// Clear affordances for any holding guard on this task (F4.5b): ⛨ Approve to
@@ -651,6 +707,41 @@ impl PlanView {
         }
     }
 
+    /// Load the plan fresh, apply `mutate`, save, and reload — the shared write path
+    /// for control/recovery actions (the UI writes plan.json directly).
+    fn mutate_plan(&mut self, cx: &mut Context<Self>, mutate: impl FnOnce(&mut Plan) -> Result<()>) {
+        let Some(plan) = self.plan.as_ref() else {
+            return;
+        };
+        let id = plan.id.clone();
+        let Ok(mut fresh) = store::load(&self.plans_dir, &id) else {
+            return;
+        };
+        if mutate(&mut fresh).is_ok() && store::save(&self.plans_dir, &fresh).is_ok() {
+            self.reload(cx);
+        }
+    }
+
+    /// Pause / resume / stop execution (F5.1/F5.6).
+    fn pause_plan(&mut self, cx: &mut Context<Self>) {
+        self.mutate_plan(cx, exec::pause);
+    }
+
+    fn resume_plan(&mut self, cx: &mut Context<Self>) {
+        self.mutate_plan(cx, exec::resume);
+    }
+
+    fn stop_plan(&mut self, cx: &mut Context<Self>) {
+        self.mutate_plan(cx, exec::stop);
+    }
+
+    /// Recover an interrupted task or take a failure-ladder decision (F11.1/F11.4):
+    /// choice ∈ resume | redo | manual.
+    fn recover_task(&mut self, task: &str, choice: &'static str, cx: &mut Context<Self>) {
+        let task = task.to_string();
+        self.mutate_plan(cx, move |plan| exec::recover_task(plan, &task, choice));
+    }
+
     /// Clear a held step guard (F4.5b), writing plan.json via plan_core. The ✋ input
     /// free-text field is deferred (fidelity); the button records the clear + evidence
     /// + receipt with no typed value for now.
@@ -741,6 +832,59 @@ impl PlanView {
     /// chrome for 5b — real editor-diff mini-buffers are a fidelity-pass upgrade.
     /// Gate evidence card (F4.5) when execution holds at a GATE task: header +
     /// ✓ Approve gate. Compliance §6 card chassis.
+    /// Failure-ladder escalation card (F11.4): shown when a task has ≥2 amendments.
+    /// Offers Take over manually / Retry (guide-me is agent-side, deferred).
+    fn render_escalation(&self, plan: &Plan, cx: &Context<Self>) -> Option<AnyElement> {
+        let task = plan
+            .tasks
+            .iter()
+            .find(|task| exec::needs_escalation(plan, &task.id))?;
+        let colors = cx.theme().colors();
+        let status = cx.theme().status();
+        let title = task.title.clone().unwrap_or_else(|| task.id.clone());
+        let manual_id = task.id.clone();
+        let redo_id = task.id.clone();
+        Some(
+            v_flex()
+                .mx_3()
+                .mt_2()
+                .rounded_md()
+                .border_1()
+                .border_color(status.deleted)
+                .bg(colors.panel_background)
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .px_2()
+                        .py_1()
+                        .items_center()
+                        .bg(status.deleted_background)
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .text_color(status.deleted)
+                                .child("ESCALATION — 2 AMENDMENTS"),
+                        )
+                        .child(Label::new(title).size(LabelSize::Small).color(Color::Muted)),
+                )
+                .child(
+                    h_flex()
+                        .px_2()
+                        .py_1()
+                        .gap_2()
+                        .child(Button::new("escalate-manual", "Take over manually").on_click(
+                            cx.listener(move |this, _, _window, cx| {
+                                this.recover_task(&manual_id, "manual", cx)
+                            }),
+                        ))
+                        .child(Button::new("escalate-redo", "Retry").on_click(cx.listener(
+                            move |this, _, _window, cx| this.recover_task(&redo_id, "redo", cx),
+                        ))),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn render_gate_hold(&self, plan: &Plan, cx: &Context<Self>) -> Option<AnyElement> {
         let hold = exec::current_hold(plan)?;
         if hold.kind != "gate" {
@@ -797,6 +941,24 @@ impl PlanView {
             .rev
             .map(|rev| format!("rev {rev}"))
             .unwrap_or_default();
+        // Amendments (F4.7) reuse this card with an err header instead of info.
+        let is_amendment =
+            pending.extra.get("kind").and_then(|kind| kind.as_str()) == Some("amendment");
+        let (band_bg, band_color, band_label, band_note) = if is_amendment {
+            (
+                status.deleted_background,
+                status.deleted,
+                "◆ AMENDMENT",
+                "proposed after a failure — accept or reject below",
+            )
+        } else {
+            (
+                status.info_background,
+                status.info,
+                "STAGED REVISION",
+                "plan unchanged until applied",
+            )
+        };
         Some(
             v_flex()
                 .mx_3()
@@ -811,15 +973,15 @@ impl PlanView {
                         .px_2()
                         .py_1()
                         .items_center()
-                        .bg(status.info_background)
+                        .bg(band_bg)
                         .child(
                             div()
                                 .text_size(px(11.))
-                                .text_color(status.info)
-                                .child("STAGED REVISION"),
+                                .text_color(band_color)
+                                .child(band_label),
                         )
                         .child(
-                            Label::new("plan unchanged until applied")
+                            Label::new(band_note)
                                 .size(LabelSize::Small)
                                 .color(Color::Muted),
                         )
@@ -1204,6 +1366,7 @@ impl Render for PlanView {
             Some(plan) => v_flex()
                 .size_full()
                 .child(self.render_header(plan, cx))
+                .children(self.render_escalation(plan, cx))
                 .children(self.render_gate_hold(plan, cx))
                 .children(self.render_staged_revision(plan, cx))
                 .child(match self.lens {
