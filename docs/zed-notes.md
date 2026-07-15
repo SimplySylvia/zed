@@ -569,3 +569,16 @@ states; motion limited to pulse (needs-you/live) / spinner (running) / shimmer (
 honoring reduced-motion. Copy idioms from `git_ui`/`agent_ui`, don't invent GPUI patterns. If
 the design is silent/contradictory for a case → **stop and ask** (don't improvise; gaps go to
 the design track).
+
+### Thread-identity finding (T5) — correction to the plan's assumption
+The Plan tab follows the active thread by matching `plan.json`'s `thread` field. Two thread
+ids exist and only one is the right key:
+- `AgentPanel::active_thread_id(cx) -> Option<ThreadId>` where `ThreadId(uuid::Uuid)`
+  (`agent_ui/src/thread_metadata_store.rs`) — a UUID. **Wrong key.**
+- `AgentPanel::active_agent_thread(cx) -> Option<Entity<AcpThread>>` →
+  `AcpThread::session_id() -> &acp::SessionId` where `SessionId(pub Arc<str>)`
+  (`acp_thread.rs:2415`) — **matches Appendix A's `"thread": "acp-7f3a"`.** Use
+  `session_id().0.to_string()` as the `find_by_thread` key.
+Seam to close later: the agent must stamp `plan.thread` with the real ACP session id (the M2
+dogfood used arbitrary strings). `AgentPanel`/`AgentPanelEvent` are `pub` (agent_ui.rs:74) —
+no upstream patch; `plan_ui` gains an additive `agent_ui` dep.

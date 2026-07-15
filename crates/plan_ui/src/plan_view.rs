@@ -5,11 +5,14 @@
 //!
 //! All colors resolve through `cx.theme()` per docs/design/plan-ui-compliance.md.
 
+use std::path::PathBuf;
+
+use agent_ui::{AgentPanel, AgentPanelEvent};
 use gpui::{
-    AnyElement, App, Context, EventEmitter, FocusHandle, Focusable, IntoElement, ParentElement,
-    Render, SharedString, Styled, WeakEntity, Window, actions,
+    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
+    ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window, actions,
 };
-use plan_core::{Plan, Status};
+use plan_core::{Plan, Status, store};
 use ui::Indicator;
 use ui::prelude::*;
 use workspace::{
@@ -41,8 +44,14 @@ pub struct PlanView {
     focus_handle: FocusHandle,
     #[allow(dead_code)]
     workspace: WeakEntity<Workspace>,
+    plans_dir: PathBuf,
+    /// ACP session id of the followed thread (matches `plan.thread`); read by
+    /// the watcher (T3).
+    #[allow(dead_code)]
+    thread_session: Option<String>,
     plan: Option<Plan>,
     lens: Lens,
+    _agent_subscription: Option<Subscription>,
 }
 
 impl PlanView {
@@ -59,14 +68,38 @@ impl PlanView {
             workspace.activate_item(&existing, true, true, window, cx);
             return;
         }
+        let plans_dir = workspace
+            .project()
+            .read(cx)
+            .visible_worktrees(cx)
+            .next()
+            .map(|worktree| worktree.read(cx).abs_path().join(".plans"))
+            .unwrap_or_else(|| PathBuf::from(".plans"));
         let handle = cx.entity().downgrade();
         let view = cx.new(|cx| PlanView {
             focus_handle: cx.focus_handle(),
             workspace: handle,
+            plans_dir,
+            thread_session: None,
             plan: None,
             lens: Lens::Tasks,
+            _agent_subscription: None,
         });
         workspace.add_item_to_active_pane(Box::new(view), None, true, window, cx);
+    }
+
+    /// Re-point the tab at the active thread's plan (F1.1). The binding key is
+    /// the ACP session id (matches `plan.thread`), read from the active thread.
+    fn retarget(&mut self, agent_panel: Entity<AgentPanel>, cx: &mut Context<Self>) {
+        let session = agent_panel
+            .read(cx)
+            .active_agent_thread(cx)
+            .map(|thread| thread.read(cx).session_id().0.to_string());
+        self.plan = session
+            .as_deref()
+            .and_then(|session| store::find_by_thread(&self.plans_dir, session));
+        self.thread_session = session;
+        cx.notify();
     }
 
     /// The lifecycle status-dot color (design spec §9 tab-dot column).
@@ -95,6 +128,23 @@ impl Item for PlanView {
     type Event = PlanViewEvent;
 
     fn to_item_events(_event: &Self::Event, _f: &mut dyn FnMut(ItemEvent)) {}
+
+    fn added_to_workspace(
+        &mut self,
+        workspace: &mut Workspace,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(agent_panel) = workspace.panel::<AgentPanel>(cx) else {
+            return;
+        };
+        self._agent_subscription = Some(cx.subscribe(&agent_panel, |this, panel, event, cx| {
+            if matches!(event, AgentPanelEvent::ActiveViewChanged) {
+                this.retarget(panel, cx);
+            }
+        }));
+        self.retarget(agent_panel, cx);
+    }
 
     fn tab_icon(&self, _window: &Window, _cx: &App) -> Option<Icon> {
         Some(Icon::new(IconName::ListTodo).color(Color::Muted))
