@@ -37,10 +37,9 @@ One milestone at a time. Before coding, write a short plan
 user's sign-off; then execute task-by-task. **Test-first** for `plan_core`/`plan_server` logic;
 GPUI views get smoke coverage + a **§13 visual verification that only the user can do** (run
 under One Dark and eyeball it) — build up the code, then hand the visual check to them. One
-commit per task, imperative, prefixed `[PLAN-M<n>]`, ending with:
-```
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
-```
+commit per task, imperative, prefixed `[PLAN-M<n>]`. **Do NOT add a `Co-Authored-By` trailer
+(or any co-author line) to commits** — the user directed this and the `plan` history was
+rewritten to strip it.
 **Stop and ask** when a spike fails, an upstream API isn't as the notes assumed, or the design
 docs are silent/contradictory. All `plan_ui` work is governed by the `plan-ui-design` skill +
 `docs/design/plan-ui-compliance.md` (run its §13 protocol per component). Stay in MVP scope
