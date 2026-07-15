@@ -42,6 +42,15 @@ impl Severity {
             _ => "concern",
         }
     }
+
+    /// The policy severity label, for reporting a finding as-configured.
+    pub fn label(self) -> &'static str {
+        match self {
+            Severity::Blocker => "blocker",
+            Severity::Warn => "warn",
+            Severity::Off => "off",
+        }
+    }
 }
 
 /// The `lint` block of `.plans/policy.json` (Appendix B), with defaults applied

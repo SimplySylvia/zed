@@ -5,7 +5,9 @@ use std::path::Path;
 
 use anyhow::Result;
 use plan_core::rev::HunkSpec;
-use plan_core::{HistoryEntry, Plan, Status, Task, TaskStatus, TimelineEntry, anchor, comments, rev, store};
+use plan_core::{
+    HistoryEntry, Plan, Status, Task, TaskStatus, TimelineEntry, anchor, comments, lint, rev, store,
+};
 
 /// Create a new draft plan and persist it atomically. The plan starts in
 /// `drafting` at rev 1 with an empty spec/design/tasks; the agent fills it in
@@ -262,4 +264,30 @@ pub fn propose_revision(plans_dir: &Path, id: &str, hunks: Vec<HunkSpec>) -> Res
     rev::stage_revision(&mut plan, hunks);
     store::save(plans_dir, &plan)?;
     Ok(plan)
+}
+
+/// Run policy lint over the plan (F9.1): reconcile findings into `plan-lint`
+/// comments and return them so the agent can auto-fix and re-run. The worktree
+/// root (parent of `.plans/`) enables `files-must-exist`. Auto-fix is the agent's
+/// job; this tool only flags.
+pub fn lint(plans_dir: &Path, id: &str) -> Result<serde_json::Value> {
+    let mut plan = store::load(plans_dir, id)?;
+    let policy = lint::Policy::load(plans_dir);
+    let repo_root = plans_dir.parent();
+    let findings = lint::lint(&plan, &policy, repo_root);
+    if lint::reconcile(&mut plan, &findings) {
+        store::save(plans_dir, &plan)?;
+    }
+    let reported: Vec<serde_json::Value> = findings
+        .iter()
+        .map(|finding| {
+            serde_json::json!({
+                "rule": finding.rule_id,
+                "severity": finding.severity.label(),
+                "block": finding.block,
+                "message": finding.message,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({ "findings": reported }))
 }

@@ -314,6 +314,16 @@ impl PlanServer {
         let plan = tools::propose_revision(&plans_dir(), &args.id, hunks).map_err(to_error)?;
         serde_json::to_string_pretty(&plan).map_err(to_error)
     }
+
+    /// Run policy lint and return the findings (F9.1).
+    #[tool(description = "Run policy lint; flags findings as plan-lint comments and returns them")]
+    async fn plan_lint(
+        &self,
+        Parameters(args): Parameters<PlanGetArgs>,
+    ) -> Result<String, ErrorData> {
+        let value = tools::lint(&plans_dir(), &args.id).map_err(to_error)?;
+        serde_json::to_string_pretty(&value).map_err(to_error)
+    }
 }
 
 #[tool_handler]
