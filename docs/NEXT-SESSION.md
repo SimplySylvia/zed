@@ -3,7 +3,8 @@
 **How to use:** point a fresh agent at this file (or paste the brief below). It's the kickoff
 for continuing the **Plan** feature. Kept current at the end of each session.
 
-_Last updated: after M6b (2026-07-15) — gates + step guards done. On branch `plan`._
+_Last updated: after M6c (2026-07-15) — M6 execution complete (+ a plan_ui demo-fidelity pass).
+On branch `plan`._
 
 ---
 
@@ -18,19 +19,21 @@ results, deferred backlog). Confirm you've read Part III + the milestone notes b
 proposing anything.
 
 ### Status
-M0–M4, **all of M5 (5a comments · 5b staged revisions · 5c lint)**, and **M6a (launch spine) +
-M6b (gates + step guards)** are **complete and visually verified**. A `plan_ui` fidelity pass +
-M6a UI follow-ups (mono metadata, pulse, pill hover/selected/shadow, panel open/close toggle,
-"Open as tab") are in too. Crates:
+M0–M4, **all of M5 (5a comments · 5b staged revisions · 5c lint)**, and **all of M6 (6a launch ·
+6b gates/guards · 6c amendments/failure-ladder/control)** are **complete and visually verified**.
+A broad `plan_ui` **demo-fidelity pass** is in too (card chassis, sechead + WHEN/SHALL acceptance
++ preview blocks, task-card checkbox/spinner + chip placement + per-task timeline, continuous
+commit rail, panel borders + contextual actions, pill states, first-launch fix). Crates:
 - `plan_core` — schema / store / validate / **anchor** / **comments** / **rev** / **lint** /
-  **exec** (launch + lease + guard/gate lifecycle + `GuardPolicy`).
-- `plan_server` — Rust `rmcp` MCP server + Claude Code hooks; reuses `plan_core`. Review +
-  **`plan_propose_revision`** + **`plan_lint`** + **`plan_launch`** + guard/gate tools
-  (`plan_hold_guard`/`plan_clear_guard`/`plan_approve_gate`); **PreToolUse gate** (no-plan-edit +
-  guard/gate holds + `require_on` command-guards).
-- `plan_ui` — Plan tab + status pill + dock panel + review UI + staged-revision cards + Approve
-  gating + Lint action + ▶ Launch + active-task spotlight + **guard badges/clear + gate card +
-  needs-you chrome**.
+  **exec** (launch + lease + guard/gate lifecycle + `GuardPolicy` + pause/resume/stop + amendments
+  + failure ladder + recovery).
+- `plan_server` — Rust `rmcp` MCP server + Claude Code hooks; reuses `plan_core`. Tools: review +
+  `plan_propose_revision` + `plan_lint` + `plan_launch` + guard/gate
+  (`plan_hold_guard`/`plan_clear_guard`/`plan_approve_gate`) + control
+  (`plan_pause`/`plan_resume`/`plan_stop`/`plan_propose_amendment`/`plan_recover_task`);
+  **PreToolUse gate** (no-plan-edit + guard/gate holds + `require_on`) + **Stop loop guard**.
+- `plan_ui` — Plan tab (lenses, cards, task cards w/ commit rail + timeline, review UI, launch +
+  guards + amendments + escalation + recovery + pause/resume/stop) + status pill + dock panel.
 - `plan-agent/` — planning skill (lifecycle + per-task loop + enforcement) + hooks + settings.
 
 Upstream footprint is only the M0 registration lines + the M4 pill line — all tracked in
@@ -51,17 +54,28 @@ docs are silent/contradictory. All `plan_ui` work is governed by the `plan-ui-de
 (PRD §14); flag v1 pulls instead of building them.
 
 ### Next up
-M6 is split (a/b/c). **M6a + M6b done.** Next:
-- **M6c — Amendments + failure ladder + control** (F4.7/F11.4/F5.1/F5.6/F11.1): amendments as
-  staged diffs **reusing `plan_core::rev`** (a failed task → a proposed plan change, never
-  improvisation), failure ladder + escalation card (2 amendments on one task → manual takeover /
-  descope+waiver / guide me), pause/resume/stop + kill (toolbar/panel/pill), interrupted-task
-  recovery (F11.1), the Stop loop guard, and lease enforcement + reclaim (F11.3b — the M6a lease
-  is set but not yet enforced/reclaimed).
-- Then **M7** git · **M8** tickets (incl. `ticket-coverage` lint, wired as a no-op in
-  `plan_core::lint`) · **M9** settings + hardening (git-format lint lands with M7's commit hook).
+M5 + M6 are done. Next major section:
+- **M7 — Git.** Branch on launch + guards for dirty tree/stale base (F10.2); commit-per-task +
+  the `Plan: {ticket} rev{rev} task-{task}` trailer via the skill + a **commit-time hook** check
+  (F10.1/F10.3); the **branch strip** (`⎇ branch ← base · ↑n ↓n · PR chip`) + **commit rail SHAs**
+  reading real repo state (zed-notes study #7 — `project::git_store` is observable);
+  `destructive_ops: amendment_only` (F10.5c); revert-task-commit. Also pick up the deferred
+  **lease enforcement/reclaim** (F11.3b) and wire the **git-format lint rules** into
+  `plan_core::lint` (M5c left them as recorded no-ops). Launch (M6a) currently launches in the
+  current tree — M7 adds the branch.
+- Then **M8** tickets (incl. `ticket-coverage` lint) · **M9** settings + hardening.
 
-**Start by writing the M6c plan for the user's sign-off — no code until approved.**
+**Start by writing the M7 plan for the user's sign-off — no code until approved.** M7 likely
+splits (branch/commit core · branch-strip + commit-rail UI · collision/drift rails).
+
+### M6 deferrals to honor (recorded in M6a/M6b/M6c notes)
+- **Lease enforcement + reclaim** (F11.3b) — lease is set on launch but the hook only checks
+  `status == executing`; leaseholder-only editing + stale-lease reclaim → M7-ish.
+- **ExitPlanMode ↔ `plan_launch`** ACP reconciliation is skill-driven (a seam, like thread-id).
+- **✋ input free-text field**, agent-death detection (auto `interrupted`), escalation
+  descope-waiver / guide-me, and staged-revision/amendment **mini-buffers** → fidelity/later.
+- **Fidelity backlog:** contract `input→output` grids + ui-states galleries as mini-buffers;
+  rail spine currently full-height (spans slightly beyond first/last node).
 
 ### M6a seams to honor (documented, non-blocking)
 - **Git → M7:** Launch doesn't create the branch/worktree yet; it launches in the current tree.

@@ -1,7 +1,25 @@
 # M6c · Execution — amendments + failure ladder + control — milestone note
 
-**Status:** code complete; `plan_core` + `plan_server` + `plan_ui` + full `zed` build green.
-**§13 visual verification under One Dark is the developer gate. This closes M6 (execution).**
+**Status:** COMPLETE. `plan_core` + `plan_server` + `plan_ui` + full `zed` build green;
+**§13 visual verification under One Dark confirmed by the developer (2026-07-15)** — amendment
+card + Accept/Reject, escalation, recovery, and pause/resume/stop all verified. **This closes M6
+(execution).**
+
+### UI fidelity follow-ups (verified with M6c, committed `[PLAN]`)
+A run of demo-fidelity work landed alongside M6c, all `plan_ui`-only + additive:
+- **First-launch fix** — the Plan tab no longer renders empty when the AgentPanel isn't ready yet
+  (resolves via the sole-plan fallback + always polls; binds to the panel late).
+- **Card chassis** (`card_shell`/`card_row`) — the amendment/staged-rev, gate, and escalation cards
+  share the demo `.card` chassis (clipped, bold caps header band, hairline rows); primaries use the
+  accent-tinted button style.
+- **Document structure** — `sechead` (caps + hairline) across Spec/Design/Tasks; acceptance rows as
+  WHEN(teal)/SHALL(purple) + ticket ref + evidence; Design contracts as dashed `◈` preview blocks.
+- **Task cards** — §7 checkbox vocabulary with an accent **spinner** for in-progress; task number +
+  right-aligned chips (ticket · system · guard · sha · tests); per-task **timeline** rows.
+- **Commit rail** (§9.1) — one continuous left spine with per-task status nodes, from launch on.
+- **Panel** (§4) — header/column **borders**, contextual actions (Pause/Resume/Stop/Approve
+  gate/Record input), pipeline row tints + mono notes + spinner, live-column verb+detail rows.
+- **Pill** — hover + solid selected state + drop shadow; open/close toggle fix.
 
 **Feature IDs:** F4.7 (amendments), F11.4 (failure ladder), F5.1 (pause/resume/stop), F5.6 (kill),
 F11.1 (interrupted-task recovery, lean), F6.3 (Stop loop guard, lean).
@@ -71,7 +89,7 @@ controls. **No upstream files touched** — `FORK_DIFF.md` unchanged.
 - [x] Tools + Stop loop guard present; one end-to-end MCP call.
 - [x] Tab: amendment card, escalation at 2, recovery on interrupted, Pause/Resume/Stop controls.
 - [x] Builds green; clippy clean; pure logic test-first; `docs/milestones/M6c.md`; FORK_DIFF unchanged.
-- [ ] **§13 visual verification under One Dark** — developer gate (protocol above).
+- [x] **§13 visual verification under One Dark** — confirmed by the developer (2026-07-15).
 
 ## Next: M7 — Git (M6 execution is complete)
 Branch on launch + guards for dirty tree/stale base (F10.2), commit-per-task + trailer via the
