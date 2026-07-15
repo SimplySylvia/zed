@@ -1,6 +1,10 @@
 //! End-to-end over MCP: create a plan then read it back through the server's
 //! stdio interface, exercising schemars arg parsing + plan_core reuse.
 
+// Synchronous integration test driving the server binary over stdio; the
+// disallowed-methods guard on std::process::Command (async-blocking) doesn't apply.
+#![allow(clippy::disallowed_methods)]
+
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 

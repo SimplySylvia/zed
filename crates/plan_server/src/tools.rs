@@ -4,7 +4,8 @@
 use std::path::Path;
 
 use anyhow::Result;
-use plan_core::{HistoryEntry, Plan, Status, Task, TaskStatus, TimelineEntry, anchor, comments, store};
+use plan_core::rev::HunkSpec;
+use plan_core::{HistoryEntry, Plan, Status, Task, TaskStatus, TimelineEntry, anchor, comments, rev, store};
 
 /// Create a new draft plan and persist it atomically. The plan starts in
 /// `drafting` at rev 1 with an empty spec/design/tasks; the agent fills it in
@@ -249,6 +250,16 @@ pub fn apply_suggestion(plans_dir: &Path, id: &str, comment_id: &str) -> Result<
     if !comments::apply_suggestion(&mut plan, comment_id) {
         anyhow::bail!("could not apply suggestion {comment_id}");
     }
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
+/// Stage an agent-proposed revision as a pending diff (F9.3). Apply/Reject is the
+/// user's action in the UI; this tool only stages and never mutates blocks or
+/// bumps `rev`. The same primitive backs execution-time amendments (F4.7).
+pub fn propose_revision(plans_dir: &Path, id: &str, hunks: Vec<HunkSpec>) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    rev::stage_revision(&mut plan, hunks);
     store::save(plans_dir, &plan)?;
     Ok(plan)
 }

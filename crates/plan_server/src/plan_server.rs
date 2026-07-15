@@ -121,6 +121,26 @@ struct CommentRefArgs {
     comment_id: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct HunkArg {
+    /// Block id this hunk rewrites, e.g. "t2.s1" (step) or "t3" (task title).
+    target: Option<String>,
+    /// The current text, for display/provenance in the change card.
+    old: Option<String>,
+    /// The proposed replacement text.
+    new: Option<String>,
+    /// Source comment id this change answers, e.g. "c1" (provenance, F3.5).
+    from: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ProposeRevisionArgs {
+    id: String,
+    /// Proposed hunks; each rewrites one block. Staged as a pending diff — the
+    /// user applies or rejects them in the UI.
+    hunks: Vec<HunkArg>,
+}
+
 #[derive(Clone)]
 struct PlanServer {
     // Read by the `#[tool_handler]`-generated routing code.
@@ -272,6 +292,26 @@ impl PlanServer {
     ) -> Result<String, ErrorData> {
         let plan = tools::apply_suggestion(&plans_dir(), &args.id, &args.comment_id)
             .map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Stage a proposed plan revision as a pending diff (F9.3).
+    #[tool(description = "Stage a proposed plan revision as a pending diff (user applies/rejects hunks)")]
+    async fn plan_propose_revision(
+        &self,
+        Parameters(args): Parameters<ProposeRevisionArgs>,
+    ) -> Result<String, ErrorData> {
+        let hunks = args
+            .hunks
+            .into_iter()
+            .map(|hunk| plan_core::rev::HunkSpec {
+                target: hunk.target,
+                old: hunk.old,
+                new: hunk.new,
+                from: hunk.from,
+            })
+            .collect();
+        let plan = tools::propose_revision(&plans_dir(), &args.id, hunks).map_err(to_error)?;
         serde_json::to_string_pretty(&plan).map_err(to_error)
     }
 }

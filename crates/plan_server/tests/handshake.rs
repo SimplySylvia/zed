@@ -1,6 +1,10 @@
 //! End-to-end: the built binary speaks the MCP stdio handshake — the exact flow
 //! Claude Code runs when it connects (initialize -> tools/list -> tools/call).
 
+// Synchronous integration test driving the server binary over stdio; the
+// disallowed-methods guard on std::process::Command (async-blocking) doesn't apply.
+#![allow(clippy::disallowed_methods)]
+
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 
