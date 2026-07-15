@@ -97,6 +97,33 @@ impl PlanView {
         workspace.add_item_to_active_pane(Box::new(view), None, true, window, cx);
     }
 
+    /// Subscribe to the agent panel's active-thread changes and retarget now.
+    fn subscribe_agent_panel(&mut self, agent_panel: Entity<AgentPanel>, cx: &mut Context<Self>) {
+        self._agent_subscription = Some(cx.subscribe(&agent_panel, |this, panel, event, cx| {
+            if matches!(event, AgentPanelEvent::ActiveViewChanged) {
+                this.retarget(panel, cx);
+            }
+        }));
+        self.retarget(agent_panel, cx);
+    }
+
+    /// One poll tick: bind to the agent panel if it has appeared since startup
+    /// (so a tab restored before the panel existed still follows threads), then
+    /// re-read the plan from disk.
+    fn poll_tick(&mut self, cx: &mut Context<Self>) {
+        if self._agent_subscription.is_none() {
+            let agent_panel = self
+                .workspace
+                .upgrade()
+                .and_then(|workspace| workspace.read(cx).panel::<AgentPanel>(cx));
+            if let Some(agent_panel) = agent_panel {
+                self.subscribe_agent_panel(agent_panel, cx);
+                return;
+            }
+        }
+        self.reload(cx);
+    }
+
     /// Re-point the tab at the active thread's plan (F1.1). The binding key is
     /// the ACP session id (matches `plan.thread`), read from the active thread.
     fn retarget(&mut self, agent_panel: Entity<AgentPanel>, cx: &mut Context<Self>) {
@@ -158,21 +185,20 @@ impl Item for PlanView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(agent_panel) = workspace.panel::<AgentPanel>(cx) else {
-            return;
-        };
-        self._agent_subscription = Some(cx.subscribe(&agent_panel, |this, panel, event, cx| {
-            if matches!(event, AgentPanelEvent::ActiveViewChanged) {
-                this.retarget(panel, cx);
-            }
-        }));
-        self.retarget(agent_panel, cx);
+        // The AgentPanel may not be registered yet on first launch / when a
+        // serialized tab restores. Bind to it if present; otherwise resolve via the
+        // sole-plan fallback now and bind late from the poll — never leave the tab
+        // empty with no poll running.
+        match workspace.panel::<AgentPanel>(cx) {
+            Some(agent_panel) => self.subscribe_agent_panel(agent_panel, cx),
+            None => self.reload(cx),
+        }
         self._watch_task = Some(cx.spawn(async move |view, cx| {
             loop {
                 cx.background_executor()
                     .timer(std::time::Duration::from_millis(500))
                     .await;
-                if view.update(cx, |view, cx| view.reload(cx)).is_err() {
+                if view.update(cx, |view, cx| view.poll_tick(cx)).is_err() {
                     break;
                 }
             }
