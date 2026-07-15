@@ -5,6 +5,7 @@ use agent_ui::{AgentPanel, AgentPanelEvent};
 use gpui::{App, Context, Render, Subscription, WeakEntity, Window};
 use plan_core::{Plan, Status, TaskStatus};
 use ui::prelude::*;
+use workspace::dock::Panel;
 use workspace::{HideStatusItem, ItemHandle, StatusItemView, Workspace};
 
 use crate::PlanPanel;
@@ -84,7 +85,24 @@ impl Render for PlanPill {
                     .on_click(move |_, window, cx| {
                         if let Some(workspace) = workspace.upgrade() {
                             workspace.update(cx, |workspace, cx| {
-                                workspace.toggle_panel_focus::<PlanPanel>(window, cx);
+                                // Toggle open/closed. `toggle_panel_focus` only closes when the
+                                // panel is focused, which a status-bar click doesn't retain — so
+                                // check whether the Plan panel is the visible bottom-dock panel
+                                // and open or close explicitly.
+                                let showing = workspace.panel::<PlanPanel>(cx).is_some_and(|panel| {
+                                    let position = panel.read(cx).position(window, cx);
+                                    let dock = workspace.dock_at_position(position).read(cx);
+                                    dock.is_open()
+                                        && dock
+                                            .visible_panel()
+                                            .is_some_and(|visible| visible.panel_id() == panel.entity_id())
+                                });
+                                if showing {
+                                    workspace.close_panel::<PlanPanel>(window, cx);
+                                } else {
+                                    workspace.open_panel::<PlanPanel>(window, cx);
+                                    workspace.focus_panel::<PlanPanel>(window, cx);
+                                }
                             });
                         }
                     });
