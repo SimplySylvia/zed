@@ -15,7 +15,7 @@ use gpui::{
     AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, Hsla, IntoElement,
     ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window, actions, px,
 };
-use plan_core::{Plan, Status, Step, Task, TaskStatus};
+use plan_core::{Anchor, Comment, Plan, Status, Step, Task, TaskStatus, anchor, comments, store};
 use ui::prelude::*;
 use ui::{Button, Indicator};
 use workspace::{
@@ -263,6 +263,11 @@ impl SerializableItem for PlanView {
 
 impl PlanView {
     fn render_header(&self, plan: &Plan, cx: &mut Context<Self>) -> impl IntoElement {
+        let open_comments = plan
+            .comments
+            .iter()
+            .filter(|comment| comment.state.as_deref() == Some("open"))
+            .count();
         h_flex()
             .gap_2()
             .px_3()
@@ -282,6 +287,15 @@ impl PlanView {
                     .child(self.lens_button(Lens::Design, "Design", cx))
                     .child(self.lens_button(Lens::Tasks, "Tasks", cx)),
             )
+            .when(open_comments > 0, |header| {
+                header.child(
+                    Button::new(
+                        "send-for-revision",
+                        format!("Send for revision · {open_comments}"),
+                    )
+                    .on_click(cx.listener(|this, _, _window, cx| this.send_for_revision(cx))),
+                )
+            })
     }
 
     fn lens_button(
@@ -298,82 +312,186 @@ impl PlanView {
             }))
     }
 
-    fn render_tasks(&self, plan: &Plan, cx: &App) -> impl IntoElement {
+    fn render_tasks(&self, plan: &Plan, cx: &Context<Self>) -> impl IntoElement {
         v_flex()
             .gap_2()
             .p_3()
-            .children(plan.tasks.iter().map(|task| render_task_card(task, cx)))
+            .children(plan.tasks.iter().map(|task| self.render_task_card(task, cx)))
     }
-}
 
-/// Task card (compliance §7 / design-spec §3.5). Structural first pass — chrome
-/// via `cx.theme()`; fidelity gaps (mono fonts, spinner, exact glyph sizes) are
-/// recorded as §13 deviations for polish.
-fn render_task_card(task: &Task, cx: &App) -> impl IntoElement {
-    let colors = cx.theme().colors();
-    let status = cx.theme().status();
-    let border = if task.status == TaskStatus::InProgress {
-        status.info
-    } else if task.status == TaskStatus::Failed {
-        status.deleted
-    } else if task.gate {
-        status.modified
-    } else {
-        colors.border_variant
-    };
-    let (glyph, glyph_color) = status_glyph(task);
-    let done = task.status == TaskStatus::Done;
-    let guarded = task.steps.iter().filter(|step| step.guard.is_some()).count();
+    /// Task card (compliance §7 / design-spec §3.5) with a flag affordance and its
+    /// anchored comments. Structural first pass — fidelity gaps recorded for §13.
+    fn render_task_card(&self, task: &Task, cx: &Context<Self>) -> impl IntoElement {
+        let colors = cx.theme().colors();
+        let status = cx.theme().status();
+        let border = if task.status == TaskStatus::InProgress {
+            status.info
+        } else if task.status == TaskStatus::Failed {
+            status.deleted
+        } else if task.gate {
+            status.modified
+        } else {
+            colors.border_variant
+        };
+        let (glyph, glyph_color) = status_glyph(task);
+        let done = task.status == TaskStatus::Done;
+        let guarded = task.steps.iter().filter(|step| step.guard.is_some()).count();
 
-    v_flex()
-        .gap_1()
-        .p_2()
-        .rounded_md()
-        .border_1()
-        .border_color(border)
-        .bg(colors.panel_background)
-        .child(
-            h_flex()
-                .gap_2()
-                .items_center()
-                .flex_wrap()
-                .child(Label::new(glyph).color(glyph_color))
-                .child(
-                    Label::new(task.id.clone())
-                        .size(LabelSize::Small)
-                        .color(Color::Muted),
-                )
-                .child(
-                    Label::new(task.title.clone().unwrap_or_default())
-                        .color(if done { Color::Muted } else { Color::Default }),
-                )
-                .when_some(task.ticket.clone(), |row, ticket| {
-                    row.child(chip(ticket, colors.text_muted))
-                })
-                .when_some(task.system.clone(), |row, system| {
-                    row.child(chip(system.to_uppercase(), system_color(Some(&system), cx)))
-                })
-                .when(guarded > 0, |row| {
-                    row.child(chip(format!("⛨ {guarded} guarded"), status.modified))
-                })
-                .when_some(task.artifacts.sha.clone(), |row, sha| {
-                    row.child(chip(
-                        format!("⌥ {}", sha.chars().take(7).collect::<String>()),
-                        status.created,
-                    ))
-                }),
-        )
-        .child(
-            v_flex()
-                .pl_4()
-                .gap_0p5()
-                .children(
+        let comment_rows: Vec<_> = self
+            .plan
+            .as_ref()
+            .map(|plan| {
+                plan.comments
+                    .iter()
+                    .filter(|comment| {
+                        comment.anchor.as_ref().and_then(|a| a.block.as_deref())
+                            == Some(task.id.as_str())
+                    })
+                    .map(|comment| {
+                        let outdated = comment.anchor.as_ref().is_some_and(|a| {
+                            matches!(anchor::reanchor(a, plan), anchor::ReanchorResult::Outdated)
+                        });
+                        render_comment(comment, outdated)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let block = task.id.clone();
+        let quote = task.title.clone().unwrap_or_default();
+
+        v_flex()
+            .gap_1()
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(border)
+            .bg(colors.panel_background)
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .flex_wrap()
+                    .child(Label::new(glyph).color(glyph_color))
+                    .child(
+                        Label::new(task.id.clone())
+                            .size(LabelSize::Small)
+                            .color(Color::Muted),
+                    )
+                    .child(
+                        Label::new(task.title.clone().unwrap_or_default())
+                            .color(if done { Color::Muted } else { Color::Default }),
+                    )
+                    .when_some(task.ticket.clone(), |row, ticket| {
+                        row.child(chip(ticket, colors.text_muted))
+                    })
+                    .when_some(task.system.clone(), |row, system| {
+                        row.child(chip(system.to_uppercase(), system_color(Some(&system), cx)))
+                    })
+                    .when(guarded > 0, |row| {
+                        row.child(chip(format!("⛨ {guarded} guarded"), status.modified))
+                    })
+                    .when_some(task.artifacts.sha.clone(), |row, sha| {
+                        row.child(chip(
+                            format!("⌥ {}", sha.chars().take(7).collect::<String>()),
+                            status.created,
+                        ))
+                    })
+                    .child(
+                        Button::new(SharedString::from(format!("flag-{block}")), "⚑").on_click(
+                            cx.listener(move |this, _, _window, cx| {
+                                this.add_flag(&block, &quote, cx)
+                            }),
+                        ),
+                    ),
+            )
+            .child(
+                v_flex().pl_4().gap_0p5().children(
                     task.steps
                         .iter()
                         .enumerate()
                         .map(|(index, step)| render_step(index, step, cx)),
                 ),
-        )
+            )
+            .children(comment_rows)
+    }
+
+    /// Add a blocker flag anchored to a block, writing plan.json via plan_core.
+    fn add_flag(&mut self, block: &str, quote: &str, cx: &mut Context<Self>) {
+        let Some(plan) = self.plan.as_ref() else {
+            return;
+        };
+        let id = plan.id.clone();
+        let Ok(mut fresh) = store::load(&self.plans_dir, &id) else {
+            return;
+        };
+        let comment_id = format!("c{}", fresh.comments.len() + 1);
+        let anchor = Anchor {
+            lens: Some("tasks".to_string()),
+            block: Some(block.to_string()),
+            range: None,
+            quote: Some(quote.to_string()),
+            code_refs: vec![],
+            extra: Default::default(),
+        };
+        comments::add_comment(
+            &mut fresh,
+            &comment_id,
+            "flag",
+            "user",
+            Some("blocker"),
+            anchor,
+            "Flagged for review",
+        );
+        if store::save(&self.plans_dir, &fresh).is_ok() {
+            self.reload(cx);
+        }
+    }
+
+    /// Mark all open comments sent for revision (F3.4), writing plan.json.
+    fn send_for_revision(&mut self, cx: &mut Context<Self>) {
+        let Some(plan) = self.plan.as_ref() else {
+            return;
+        };
+        let id = plan.id.clone();
+        let Ok(mut fresh) = store::load(&self.plans_dir, &id) else {
+            return;
+        };
+        if comments::mark_sent_batch(&mut fresh) > 0
+            && store::save(&self.plans_dir, &fresh).is_ok()
+        {
+            self.reload(cx);
+        }
+    }
+}
+
+/// Render one anchored comment (severity glyph + text + state + outdated badge).
+fn render_comment(comment: &Comment, outdated: bool) -> impl IntoElement {
+    let (glyph, color) = match comment.severity.as_deref() {
+        Some("blocker") => ("⚑", Color::Error),
+        Some("concern") => ("⚠", Color::Warning),
+        _ => ("💡", Color::Muted),
+    };
+    let text = comment
+        .thread
+        .first()
+        .and_then(|message| message.text.clone())
+        .unwrap_or_default();
+    let state = comment.state.clone().unwrap_or_default();
+    h_flex()
+        .pl_4()
+        .gap_2()
+        .items_center()
+        .child(Label::new(glyph).color(color).size(LabelSize::Small))
+        .child(Label::new(text).size(LabelSize::Small))
+        .child(Label::new(state).size(LabelSize::Small).color(Color::Muted))
+        .when(outdated, |row| {
+            row.child(
+                Label::new("outdated")
+                    .size(LabelSize::Small)
+                    .color(Color::Warning),
+            )
+        })
 }
 
 fn render_step(index: usize, step: &Step, cx: &App) -> impl IntoElement {
