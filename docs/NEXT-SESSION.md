@@ -12,11 +12,17 @@ On branch `plan`._
 
 You're continuing the "Plan" feature in a personal Zed fork (Rust + GPUI). All work is on the
 `plan` branch. **Read first, in order:** your project memory (auto-loaded: `plan-fork-project`
-+ `zed-build-environment`); then `docs/PRD.md` (Part 0 context, **Part III working agreement —
-it governs HOW you work**, Part II build plan + milestones); then the milestone notes
-`docs/milestones/M0.md … M5a.md`; then `docs/zed-notes.md` (Zed internals findings, spike
-results, deferred backlog). Confirm you've read Part III + the milestone notes before
-proposing anything.
++ `zed-build-environment` + **`no-coauthor-trailer`**); then `docs/PRD.md` (Part 0 context,
+**Part III working agreement — it governs HOW you work**, Part II build plan + milestones, and
+for the next section Part I §9 + Appendix B (git F10.x + policy) and Part IV §3.2/§3.3 (branch
+strip + commit rail)); then the milestone notes `docs/milestones/M0.md … M6c.md`; then
+`docs/zed-notes.md` (Zed internals findings, spike results, deferred backlog — study #7 = git
+state via `project::git_store`, git_ui hunk reuse). Confirm you've read Part III + the milestone
+notes before proposing anything.
+
+**Current section: M7 (Git) is next — see "Next up" below. Start by writing the M7 plan for
+sign-off; no code until approved.** Never add a `Co-Authored-By` trailer to commits (see the
+Working agreement).
 
 ### Status
 M0–M4, **all of M5 (5a comments · 5b staged revisions · 5c lint)**, and **all of M6 (6a launch ·
