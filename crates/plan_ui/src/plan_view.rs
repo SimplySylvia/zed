@@ -52,6 +52,7 @@ pub struct PlanView {
     plan: Option<Plan>,
     lens: Lens,
     _agent_subscription: Option<Subscription>,
+    _watch_task: Option<gpui::Task<()>>,
 }
 
 impl PlanView {
@@ -84,6 +85,7 @@ impl PlanView {
             plan: None,
             lens: Lens::Tasks,
             _agent_subscription: None,
+            _watch_task: None,
         });
         workspace.add_item_to_active_pane(Box::new(view), None, true, window, cx);
     }
@@ -103,6 +105,20 @@ impl PlanView {
             self.lens = lens;
         }
         cx.notify();
+    }
+
+    /// Re-read the bound plan from disk, re-rendering only if it changed. Drives
+    /// the "watch the agent draft live" demo. M3 polls at 500ms (the §7 fallback);
+    /// a proper fs watch is a later refinement.
+    fn reload(&mut self, cx: &mut Context<Self>) {
+        let Some(session) = self.thread_session.clone() else {
+            return;
+        };
+        let fresh = store::find_by_thread(&self.plans_dir, &session);
+        if fresh != self.plan {
+            self.plan = fresh;
+            cx.notify();
+        }
     }
 
     /// The lifecycle status-dot color (design spec §9 tab-dot column).
@@ -147,6 +163,16 @@ impl Item for PlanView {
             }
         }));
         self.retarget(agent_panel, cx);
+        self._watch_task = Some(cx.spawn(async move |view, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(500))
+                    .await;
+                if view.update(cx, |view, cx| view.reload(cx)).is_err() {
+                    break;
+                }
+            }
+        }));
     }
 
     fn tab_icon(&self, _window: &Window, _cx: &App) -> Option<Icon> {
