@@ -172,12 +172,16 @@ impl Item for PlanView {
         Some(Icon::new(IconName::ListTodo).color(Color::Muted))
     }
 
-    fn tab_content(&self, params: TabContentParams, _window: &Window, _cx: &App) -> AnyElement {
+    fn tab_content(&self, params: TabContentParams, _window: &Window, cx: &App) -> AnyElement {
+        let dot = match self.plan.as_ref() {
+            Some(plan) => crate::status_dot(&plan.status, self.status_color(), "plan-tab-dot"),
+            None => Indicator::dot().color(self.status_color()).into_any_element(),
+        };
         h_flex()
             .gap_1()
-            .child(Indicator::dot().color(self.status_color()))
+            .child(dot)
             .child(
-                Label::new(self.tab_content_text(0, _cx)).color(if params.selected {
+                Label::new(self.tab_content_text(0, cx)).color(if params.selected {
                     Color::Default
                 } else {
                     Color::Muted
@@ -280,12 +284,13 @@ impl PlanView {
             .px_3()
             .py_1()
             .items_center()
-            .child(Indicator::dot().color(self.status_color()))
+            .child(crate::status_dot(&plan.status, self.status_color(), "plan-header-dot"))
             .child(Label::new(format!("Plan — {}", plan.id)).size(LabelSize::Large))
             .child(
                 Label::new(format!("rev {}", plan.rev))
-                    .size(LabelSize::Small)
-                    .color(Color::Muted),
+                    .buffer_font(cx)
+                    .size(LabelSize::XSmall)
+                    .color(Color::Placeholder),
             )
             .child(
                 h_flex()
@@ -439,9 +444,10 @@ impl PlanView {
                         row.child(chip(format!("⛨ {guarded} guarded"), status.modified))
                     })
                     .when_some(task.artifacts.sha.clone(), |row, sha| {
-                        row.child(chip(
+                        row.child(crate::mono_chip(
                             format!("⌥ {}", sha.chars().take(7).collect::<String>()),
                             status.created,
+                            cx,
                         ))
                     })
                     .child(
@@ -649,7 +655,12 @@ impl PlanView {
                                 .color(Color::Muted),
                         )
                         .child(div().flex_1())
-                        .child(Label::new(rev_note).size(LabelSize::Small).color(Color::Muted)),
+                        .child(
+                            Label::new(rev_note)
+                                .buffer_font(cx)
+                                .size(LabelSize::XSmall)
+                                .color(Color::Placeholder),
+                        ),
                 )
                 .children(pending.hunks.iter().map(|hunk| self.render_hunk(hunk, cx)))
                 .into_any_element(),
@@ -703,11 +714,12 @@ impl PlanView {
                     .items_center()
                     .child(
                         Label::new(hunk.target.clone().unwrap_or_default())
-                            .size(LabelSize::Small)
-                            .color(Color::Muted),
+                            .buffer_font(cx)
+                            .size(LabelSize::XSmall)
+                            .color(Color::Placeholder),
                     )
                     .when_some(hunk.from.clone(), |row, from| {
-                        row.child(chip(format!("from {from}"), status.info))
+                        row.child(crate::mono_chip(format!("from {from}"), status.info, cx))
                     })
                     .child(div().flex_1())
                     .child(controls),
@@ -763,20 +775,25 @@ impl PlanView {
         let resolvable =
             comment.severity.as_deref() == Some("blocker") && state != "resolved" && !is_lint;
         let rule_id = if is_lint { lint_rule_id(comment) } else { None };
+        let block = comment.anchor.as_ref().and_then(|anchor| anchor.block.clone());
         let comment_id = comment.id.clone();
         let muted = cx.theme().colors().text_muted;
+        let state_color = comment_state_color(&state).color(cx);
         h_flex()
             .pl_4()
             .gap_2()
             .items_center()
             .child(Label::new(glyph).color(color).size(LabelSize::Small))
             .child(Label::new(text).size(LabelSize::Small))
-            .child(
-                Label::new(state)
-                    .size(LabelSize::Small)
-                    .color(Color::Muted),
-            )
-            .when_some(rule_id, |row, rule_id| row.child(chip(rule_id, muted)))
+            .child(chip(state, state_color))
+            .when(!is_lint, |row| {
+                row.when_some(block, |row, block| {
+                    row.child(crate::mono_chip(format!("{comment_id} ↪ {block}"), muted, cx))
+                })
+            })
+            .when_some(rule_id, |row, rule_id| {
+                row.child(crate::mono_chip(rule_id, muted, cx))
+            })
             .when(outdated, |row| {
                 row.child(
                     Label::new("outdated")
@@ -870,6 +887,17 @@ fn lint_rule_id(comment: &Comment) -> Option<String> {
             .strip_suffix(&format!("-{block}"))
             .map(str::to_string),
         None => Some(stripped.to_string()),
+    }
+}
+
+/// Comment thread state → chip color (compliance §9: open amber / resolved green;
+/// addressed = agent acted, awaiting the user).
+fn comment_state_color(state: &str) -> Color {
+    match state {
+        "resolved" => Color::Created,
+        "addressed" => Color::Info,
+        "open" | "sent" | "reopened" => Color::Modified,
+        _ => Color::Muted,
     }
 }
 

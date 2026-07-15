@@ -8,12 +8,15 @@
 //! Fork discipline (PRD Part II §2): `plan_ui` may depend on
 //! workspace/agent_ui/editor/theme; nothing may depend on `plan_ui`.
 
+use std::time::Duration;
+
 use acp_thread::{AgentThreadEntry, ToolCallStatus};
 use agent_ui::AgentPanelEvent;
 use anyhow::Result;
 use gpui::{
-    App, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
-    Pixels, Render, Subscription, WeakEntity, Window, actions, px,
+    Animation, AnimationExt, AnyElement, App, AsyncWindowContext, Context, Entity, EventEmitter,
+    FocusHandle, Focusable, Hsla, IntoElement, Pixels, Render, SharedString, Subscription,
+    WeakEntity, Window, actions, px, pulsating_between,
 };
 use plan_core::{Plan, Status, Task, TaskStatus};
 use ui::Indicator;
@@ -230,7 +233,7 @@ impl Render for PlanPanel {
                         Label::new("no plan — ask the agent to draft one").color(Color::Muted),
                     )
                     .into_any_element(),
-                Some(plan) => panel_body(plan, &self.activity).into_any_element(),
+                Some(plan) => panel_body(plan, &self.activity, cx).into_any_element(),
             })
     }
 }
@@ -269,12 +272,12 @@ fn activity_row(entry: &AgentThreadEntry) -> Option<ActivityRow> {
     Some(ActivityRow { text, kind })
 }
 
-fn panel_body(plan: &Plan, activity: &[ActivityRow]) -> impl IntoElement {
+fn panel_body(plan: &Plan, activity: &[ActivityRow], cx: &App) -> impl IntoElement {
     v_flex()
         .size_full()
         .gap_1()
         .p_2()
-        .child(panel_header(plan))
+        .child(panel_header(plan, cx))
         .child(
             h_flex()
                 .flex_1()
@@ -296,7 +299,7 @@ fn panel_body(plan: &Plan, activity: &[ActivityRow]) -> impl IntoElement {
         )
 }
 
-fn panel_header(plan: &Plan) -> impl IntoElement {
+fn panel_header(plan: &Plan, cx: &App) -> impl IntoElement {
     let done = plan
         .tasks
         .iter()
@@ -305,17 +308,19 @@ fn panel_header(plan: &Plan) -> impl IntoElement {
     h_flex()
         .gap_2()
         .items_center()
-        .child(Indicator::dot().color(panel_dot_color(&plan.status)))
+        .child(status_dot(&plan.status, panel_dot_color(&plan.status), "plan-panel-dot"))
         .child(Label::new(format!("Plan · {}", plan.id)))
         .child(
             Label::new(format!("{done}/{}", plan.tasks.len()))
-                .size(LabelSize::Small)
-                .color(Color::Muted),
+                .buffer_font(cx)
+                .size(LabelSize::XSmall)
+                .color(Color::Placeholder),
         )
         .child(
             Label::new(sync_receipt(plan))
-                .size(LabelSize::Small)
-                .color(Color::Muted),
+                .buffer_font(cx)
+                .size(LabelSize::XSmall)
+                .color(Color::Placeholder),
         )
 }
 
@@ -387,9 +392,68 @@ fn panel_task_glyph(task: &Task) -> (&'static str, Color) {
     }
 }
 
+// ── Shared visual helpers (compliance §0) ───────────────────────────────────
+
+/// A bordered mono pill for metadata (compliance G7): SHAs, rule ids, anchor
+/// labels, provenance chips. The inner label carries the buffer (mono) font.
+pub(crate) fn mono_chip(text: impl Into<SharedString>, color: Hsla, cx: &App) -> impl IntoElement {
+    div()
+        .px_1()
+        .rounded_sm()
+        .border_1()
+        .border_color(color)
+        .child(
+            Label::new(text)
+                .buffer_font(cx)
+                .size(LabelSize::XSmall)
+                .color(Color::Custom(color)),
+        )
+}
+
+/// Lifecycle states whose status dot / pill pulses ("needs you now" / live —
+/// compliance G4, design-spec §9): drafting, executing, gate (and guard-hold,
+/// which is a runtime facet of those).
+pub(crate) fn status_pulses(status: &Status) -> bool {
+    matches!(status, Status::Drafting | Status::Executing | Status::Gate)
+}
+
+/// Wrap an element in the slow opacity pulse (compliance G4). `id` must be unique
+/// within the window. Honors reduced-motion via GPUI's animation system.
+pub(crate) fn pulse(element: impl IntoElement, id: &'static str) -> AnyElement {
+    div()
+        .child(element)
+        .with_animation(
+            id,
+            Animation::new(Duration::from_secs(2))
+                .repeat()
+                .with_easing(pulsating_between(0.4, 0.95)),
+            |element, delta| element.opacity(delta),
+        )
+        .into_any_element()
+}
+
+/// The status dot, pulsing for needs-you/live states (compliance §2/§10 + G4).
+pub(crate) fn status_dot(status: &Status, color: Color, id: &'static str) -> AnyElement {
+    let dot = Indicator::dot().color(color);
+    if status_pulses(status) {
+        pulse(dot, id)
+    } else {
+        dot.into_any_element()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn status_pulses_matches_needs_you_and_live_states() {
+        assert!(status_pulses(&Status::Drafting));
+        assert!(status_pulses(&Status::Executing));
+        assert!(status_pulses(&Status::Gate));
+        assert!(!status_pulses(&Status::Approved));
+        assert!(!status_pulses(&Status::InReview));
+    }
 
     #[test]
     fn sync_receipt_includes_rev_and_timestamp() {

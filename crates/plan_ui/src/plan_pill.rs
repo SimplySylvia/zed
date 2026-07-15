@@ -57,13 +57,24 @@ impl PlanPill {
 }
 
 impl Render for PlanPill {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let content = self.follower.plan().map(pill_fragment);
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let content = self
+            .follower
+            .plan()
+            .map(|plan| (pill_fragment(plan), plan.status.clone()));
         let workspace = self.workspace.clone();
         div()
             .id("plan-pill")
-            .when_some(content, |el, (fragment, color)| {
-                el.px_1()
+            .when_some(content, |el, ((fragment, color), status)| {
+                // Rounded caps pill, tinted by the state family (compliance §1).
+                let tint = color.color(cx);
+                let pill = div()
+                    .id("plan-pill-body")
+                    .px_1p5()
+                    .rounded_full()
+                    .border_1()
+                    .border_color(tint)
+                    .bg(tint.opacity(0.1))
                     .cursor_pointer()
                     .child(
                         Label::new(format!("◆ Plan {fragment}"))
@@ -76,7 +87,14 @@ impl Render for PlanPill {
                                 workspace.toggle_panel_focus::<PlanPanel>(window, cx);
                             });
                         }
-                    })
+                    });
+                // The pill pulses only for gate/guard-hold (contract §1), unlike the
+                // status dots (which also pulse for drafting/executing).
+                if matches!(status, Status::Gate) {
+                    el.child(crate::pulse(pill, "plan-pill-pulse"))
+                } else {
+                    el.child(pill)
+                }
             })
     }
 }
