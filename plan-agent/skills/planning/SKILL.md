@@ -22,6 +22,10 @@ your head or in prose replies — read and write the file.
 - `plan_answer_question(id, question_id, answer)` — record an answer to an open question.
 - `plan_set_status(id, status)` — advance lifecycle
   (`intake|drafting|in_review|revising|approved|executing|paused|gate|amending|done|abandoned`).
+- `plan_launch(id, thread)` — launch an approved plan (→ `executing`) and take the executor
+  lease. Returns the plan with `git.branch` / `git.base` **stamped** — the branch you create.
+- `plan_set_branch(id, branch, base)` — record the branch/base after you create it.
+- `plan_record_commit(id, task, sha, diffstat?)` — record a task's commit for the commit rail.
 
 ## Lifecycle
 
@@ -50,15 +54,36 @@ Build the plan in order — Spec → Design → Tasks — using the tools:
 3. `plan_add_task` per task; keep tasks dependency-ordered and small (one commit each).
 Then `plan_set_status(id, "in_review")` and hand it back for review.
 
+## Launch — create the branch (F10.2)
+
+When the plan is launched (you call `plan_launch`, or the user clicks Launch and the plan
+becomes `executing`), **create the git branch before the first task**:
+1. `plan_get(id)` and read `git.branch` / `git.base` (launch stamps the intended names).
+2. `git checkout -b <git.branch> <git.base>` — cut the branch from its base.
+3. `plan_set_branch(id, <branch>, <base>)` to confirm it.
+
+Launch is **guarded**: if the working tree is dirty or the base is stale, `plan_launch` fails
+with the reason — commit/stash or update first, don't force past it.
+
 ## Execution — the per-task loop
 
 Only after the plan is **`executing`** (launched). For each task, in order:
 1. **`plan_get(id)`** — re-read. The plan may have changed under you (user edits, revisions).
    This re-read is mandatory before every task; a hook also injects the current plan.
 2. Do exactly what the task's steps say — its declared files, nothing extra.
-3. Run the task's tests; they must pass before you commit.
+3. Run the task's tests; **they must pass before you commit** (a red suite means fix or amend,
+   never commit).
 4. `task_update(id, task_id, "done", "<evidence: test result, commit sha, …>")`.
-5. One commit per task, following the plan's commit format.
+5. **One commit per task.** Use the task's `commit_message` as the subject and append the
+   trailer `Plan: {ticket} rev{rev} task-{task}` (ticketless drops the ticket token). A
+   commit-time hook **blocks** a commit whose subject doesn't match the policy format or that
+   is missing the trailer. Example:
+   `git commit -m "[LED-212]: accept page params in loader" -m "Plan: LED-212 rev5 task-t1"`.
+6. `plan_record_commit(id, task_id, <sha>, "<diffstat>")` so the commit shows on the rail.
+
+**Never rewrite history.** `git reset --hard`, `git push --force`, `git branch -D`, and
+`git clean -f` are amendment-only (F10.5c) and the hook blocks them — propose an amendment
+instead. `git revert` (a new commit) is fine.
 
 If a step is guarded, the run **holds** — you will be blocked by a hook until the guard is
 cleared. Do not try to route around it.
