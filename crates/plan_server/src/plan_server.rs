@@ -20,6 +20,7 @@ use rmcp::{
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+pub mod git;
 pub mod hooks;
 pub mod tools;
 
@@ -126,6 +127,30 @@ struct PlanLaunchArgs {
     id: String,
     /// The executing thread's ACP session id; takes the executor lease (F11.3).
     thread: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SetBranchArgs {
+    id: String,
+    /// The branch name the skill created (e.g. "led-212-invoices-pagination").
+    branch: String,
+    /// The base branch it was cut from.
+    base: String,
+    /// Optional worktree path when isolated (v1; None in the main tree).
+    #[serde(default)]
+    worktree: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct RecordCommitArgs {
+    id: String,
+    /// The task this commit implements.
+    task: String,
+    /// The commit SHA (short or full).
+    sha: String,
+    /// Optional diffstat, e.g. "+42 -6".
+    #[serde(default)]
+    diffstat: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -369,6 +394,40 @@ impl PlanServer {
         Parameters(args): Parameters<PlanLaunchArgs>,
     ) -> Result<String, ErrorData> {
         let plan = tools::launch(&plans_dir(), &args.id, &args.thread).map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Stamp the plan's git branch/base after the skill creates it (F10.2).
+    #[tool(description = "Record the plan's git branch and base branch")]
+    async fn plan_set_branch(
+        &self,
+        Parameters(args): Parameters<SetBranchArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::set_branch(
+            &plans_dir(),
+            &args.id,
+            &args.branch,
+            &args.base,
+            args.worktree.as_deref(),
+        )
+        .map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Record a task's commit SHA + diffstat for the commit rail (F10.3).
+    #[tool(description = "Record a task's commit (sha + diffstat) on the plan")]
+    async fn plan_record_commit(
+        &self,
+        Parameters(args): Parameters<RecordCommitArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::record_commit(
+            &plans_dir(),
+            &args.id,
+            &args.task,
+            &args.sha,
+            args.diffstat.as_deref(),
+        )
+        .map_err(to_error)?;
         serde_json::to_string_pretty(&plan).map_err(to_error)
     }
 

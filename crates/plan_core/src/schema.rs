@@ -521,7 +521,7 @@ pub struct Hunk {
     pub extra: Extra,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Git {
     #[serde(default)]
     pub branch: Option<String>,

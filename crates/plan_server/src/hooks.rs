@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use plan_core::{Plan, Status, TaskStatus, exec, store};
+use plan_core::{Plan, Status, TaskStatus, exec, git, store};
 use serde_json::{Value, json};
 
 /// File-writing tools gated by the executing-plan rule.
@@ -85,11 +85,23 @@ pub fn pretooluse_gate(
     let Some(plan) = active_plan(plans_dir) else {
         return Ok(());
     };
+    let is_edit = EDIT_TOOLS.contains(&tool_name);
+    let is_bash = tool_name == "Bash";
+    // Destructive git is amendment-only whenever a plan governs the session
+    // (F10.5c) — enforced regardless of lifecycle, so history is never rewritten.
+    if is_bash {
+        if let Some(command) = command {
+            if git::is_destructive(command) {
+                return Err(
+                    "destructive git is amendment-only (F10.5c) — propose an amendment instead of rewriting history"
+                        .to_string(),
+                );
+            }
+        }
+    }
     if plan.status != Status::Executing {
         return Ok(());
     }
-    let is_edit = EDIT_TOOLS.contains(&tool_name);
-    let is_bash = tool_name == "Bash";
     if !is_edit && !is_bash {
         return Ok(());
     }
@@ -98,6 +110,16 @@ pub fn pretooluse_gate(
     }
     if is_bash {
         if let Some(command) = command {
+            // Commit-time format + trailer check (F10.1/F10.3).
+            if is_git_commit(command) {
+                let message = commit_message(command);
+                if !message.is_empty() {
+                    let policy = git::GitPolicy::load(plans_dir);
+                    let ticket = git::plan_ticket_key(&plan);
+                    git::commit_ok(&policy, &message, ticket)
+                        .map_err(|reason| format!("commit blocked — {reason}"))?;
+                }
+            }
             let policy = exec::GuardPolicy::load(plans_dir);
             if let Some(pattern) = exec::matched_require_on(&policy, command) {
                 if !exec::command_guard_cleared(&plan, &pattern) {
@@ -109,6 +131,79 @@ pub fn pretooluse_gate(
         }
     }
     Ok(())
+}
+
+/// Whether a shell command runs `git commit`.
+fn is_git_commit(command: &str) -> bool {
+    let tokens = shell_tokens(command);
+    tokens
+        .windows(2)
+        .any(|pair| pair[0] == "git" && pair[1] == "commit")
+}
+
+/// Reconstruct the commit message from `-m`/`--message` arguments (git joins
+/// multiple `-m` values with a blank line — so `-m subject -m trailer` becomes
+/// subject + trailer). Empty when none are present (e.g. an editor/`-F` commit,
+/// which we can't validate and therefore don't block).
+fn commit_message(command: &str) -> String {
+    let tokens = shell_tokens(command);
+    let mut paragraphs = Vec::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        let token = &tokens[index];
+        if token == "-m" || token == "--message" {
+            if let Some(value) = tokens.get(index + 1) {
+                paragraphs.push(value.clone());
+                index += 2;
+                continue;
+            }
+        } else if let Some(value) = token.strip_prefix("--message=") {
+            paragraphs.push(value.to_string());
+        }
+        index += 1;
+    }
+    paragraphs.join("\n\n")
+}
+
+/// Split a command line into tokens, honoring single/double quotes and stripping
+/// the surrounding quote characters. Good enough for hook inspection — not a full
+/// shell parser.
+fn shell_tokens(command: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut started = false;
+    let mut quote: Option<char> = None;
+    for ch in command.chars() {
+        match quote {
+            Some(active) => {
+                if ch == active {
+                    quote = None;
+                } else {
+                    current.push(ch);
+                }
+            }
+            None => match ch {
+                '"' | '\'' => {
+                    quote = Some(ch);
+                    started = true;
+                }
+                ch if ch.is_whitespace() => {
+                    if started {
+                        tokens.push(std::mem::take(&mut current));
+                        started = false;
+                    }
+                }
+                _ => {
+                    current.push(ch);
+                    started = true;
+                }
+            },
+        }
+    }
+    if started {
+        tokens.push(current);
+    }
+    tokens
 }
 
 /// A human-facing reason for a guard/gate hold, quoting the guard prompt.

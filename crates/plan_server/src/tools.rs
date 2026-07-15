@@ -5,10 +5,13 @@ use std::path::Path;
 
 use anyhow::Result;
 use plan_core::rev::HunkSpec;
+use plan_core::schema::Commit;
 use plan_core::{
-    HistoryEntry, Plan, Status, Task, TaskStatus, TimelineEntry, anchor, comments, exec, lint, rev,
-    store,
+    HistoryEntry, Plan, Status, Task, TaskStatus, TimelineEntry, anchor, comments, exec, git, lint,
+    rev, store,
 };
+
+use crate::git as server_git;
 
 /// Create a new draft plan and persist it atomically. The plan starts in
 /// `drafting` at rev 1 with an empty spec/design/tasks; the agent fills it in
@@ -267,12 +270,81 @@ pub fn propose_revision(plans_dir: &Path, id: &str, hunks: Vec<HunkSpec>) -> Res
     Ok(plan)
 }
 
-/// Launch the plan (F4.1): transition `approved → executing` and take the executor
-/// lease for `thread` (F11.3). Git branch/worktree setup (F10.2) is M7; this only
-/// moves plan state. The per-task loop then uses `task_update`.
+/// Launch the plan (F4.1): guard against a dirty tree / stale base (F10.2), then
+/// transition `approved → executing`, take the executor lease (F11.3), and stamp
+/// the intended branch/base so the skill can create it (open question 1). The
+/// per-task loop then uses `task_update`. When the repo can't be inspected (not a
+/// git repo, git unavailable) the guard degrades to a no-op rather than blocking.
 pub fn launch(plans_dir: &Path, id: &str, thread: &str) -> Result<Plan> {
     let mut plan = store::load(plans_dir, id)?;
+    let policy = git::GitPolicy::load(plans_dir);
+    if let Some(repo) = plans_dir.parent() {
+        if let Ok(dirty) = server_git::is_dirty(repo) {
+            let base = git::base_for(&plan, &policy);
+            let behind = server_git::behind_count(repo, &base);
+            if let Some(reason) = git::launch_block(&policy, dirty, behind) {
+                anyhow::bail!("cannot launch {id}: {reason}");
+            }
+        }
+    }
     exec::launch(&mut plan, thread)?;
+    // Stamp the intended branch/base (idempotent — an existing branch is kept).
+    let branch = git::branch_name(&plan, &policy);
+    let base = git::base_for(&plan, &policy);
+    let git_state = plan.git.get_or_insert_with(Default::default);
+    if git_state.branch.is_none() {
+        git_state.branch = Some(branch);
+        git_state.base = Some(base);
+    }
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
+/// Stamp the plan's git branch/base (F10.2). The skill calls this after creating
+/// the branch (or to rebind); the UI reads live branch state separately via
+/// `git_store`. Git telemetry — no rev bump.
+pub fn set_branch(
+    plans_dir: &Path,
+    id: &str,
+    branch: &str,
+    base: &str,
+    worktree: Option<&str>,
+) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    let git_state = plan.git.get_or_insert_with(Default::default);
+    git_state.branch = Some(branch.to_string());
+    git_state.base = Some(base.to_string());
+    if let Some(worktree) = worktree {
+        git_state.worktree = Some(worktree.to_string());
+    }
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
+/// Record a task's commit (F10.3): stamp the task's `artifacts` (sha + diffstat)
+/// and append it to `git.commits` for the commit rail. Git telemetry — no rev bump.
+pub fn record_commit(
+    plans_dir: &Path,
+    id: &str,
+    task: &str,
+    sha: &str,
+    diffstat: Option<&str>,
+) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    let target = plan
+        .tasks
+        .iter_mut()
+        .find(|candidate| candidate.id == task)
+        .ok_or_else(|| anyhow::anyhow!("no task {task}"))?;
+    target.artifacts.sha = Some(sha.to_string());
+    target.artifacts.diffstat = diffstat.map(String::from);
+    let git_state = plan.git.get_or_insert_with(Default::default);
+    git_state.commits.push(Commit {
+        task: Some(task.to_string()),
+        sha: Some(sha.to_string()),
+        diffstat: diffstat.map(String::from),
+        extra: Default::default(),
+    });
     store::save(plans_dir, &plan)?;
     Ok(plan)
 }
