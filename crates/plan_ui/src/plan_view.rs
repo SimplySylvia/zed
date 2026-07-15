@@ -13,8 +13,8 @@ use gpui::{
     ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window, actions, px,
 };
 use plan_core::{Plan, Status, Step, Task, TaskStatus, store};
-use ui::Indicator;
 use ui::prelude::*;
+use ui::{Button, Indicator};
 use workspace::{
     Workspace,
     item::{Item, ItemEvent, TabContentParams},
@@ -99,6 +99,9 @@ impl PlanView {
             .as_deref()
             .and_then(|session| store::find_by_thread(&self.plans_dir, session));
         self.thread_session = session;
+        if let Some(lens) = self.plan.as_ref().map(|plan| default_lens(&plan.status)) {
+            self.lens = lens;
+        }
         cx.notify();
     }
 
@@ -181,7 +184,7 @@ impl Item for PlanView {
 }
 
 impl PlanView {
-    fn render_header(&self, plan: &Plan) -> impl IntoElement {
+    fn render_header(&self, plan: &Plan, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .gap_2()
             .px_3()
@@ -195,10 +198,26 @@ impl PlanView {
                     .color(Color::Muted),
             )
             .child(
-                Label::new(format!("{:?}", plan.status).to_lowercase())
-                    .size(LabelSize::Small)
-                    .color(self.status_color()),
+                h_flex()
+                    .gap_0p5()
+                    .child(self.lens_button(Lens::Spec, "Spec", cx))
+                    .child(self.lens_button(Lens::Design, "Design", cx))
+                    .child(self.lens_button(Lens::Tasks, "Tasks", cx)),
             )
+    }
+
+    fn lens_button(
+        &self,
+        lens: Lens,
+        label: &'static str,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        Button::new(label, label)
+            .toggle_state(self.lens == lens)
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                this.lens = lens;
+                cx.notify();
+            }))
     }
 
     fn render_tasks(&self, plan: &Plan, cx: &App) -> impl IntoElement {
@@ -356,6 +375,83 @@ fn chip(text: impl Into<SharedString>, color: Hsla) -> impl IntoElement {
         .child(text.into())
 }
 
+/// The default lens for a status (F12.1: default lens follows status).
+fn default_lens(status: &Status) -> Lens {
+    match status {
+        Status::Executing | Status::Paused | Status::Gate | Status::Amending => Lens::Tasks,
+        _ => Lens::Spec,
+    }
+}
+
+fn section(title: &'static str) -> impl IntoElement {
+    Label::new(title).size(LabelSize::Small).color(Color::Muted)
+}
+
+fn bullet(text: &str) -> impl IntoElement {
+    Label::new(format!("• {text}")).size(LabelSize::Small)
+}
+
+fn render_spec(plan: &Plan) -> impl IntoElement {
+    let spec = &plan.spec;
+    v_flex()
+        .p_3()
+        .gap_2()
+        .child(section("GOAL"))
+        .child(Label::new(spec.goal.clone()).size(LabelSize::Small))
+        .when(!spec.scope.r#in.is_empty(), |column| {
+            column
+                .child(section("IN SCOPE"))
+                .children(spec.scope.r#in.iter().map(|item| bullet(item)))
+        })
+        .when(!spec.scope.out.is_empty(), |column| {
+            column
+                .child(section("OUT OF SCOPE"))
+                .children(spec.scope.out.iter().map(|item| bullet(item)))
+        })
+        .when(!spec.acceptance.is_empty(), |column| {
+            column.child(section("ACCEPTANCE")).children(spec.acceptance.iter().map(
+                |acceptance| {
+                    Label::new(format!(
+                        "when {} — shall {}",
+                        acceptance.when.as_deref().unwrap_or(""),
+                        acceptance.shall.as_deref().unwrap_or("")
+                    ))
+                    .size(LabelSize::Small)
+                },
+            ))
+        })
+}
+
+fn render_design(plan: &Plan) -> impl IntoElement {
+    let design = &plan.design;
+    v_flex()
+        .p_3()
+        .gap_2()
+        .when(!design.contracts.is_empty(), |column| {
+            column.child(section("CONTRACTS")).children(
+                design
+                    .contracts
+                    .iter()
+                    .map(|contract| Label::new(contract.id.clone()).size(LabelSize::Small)),
+            )
+        })
+        .when(!design.decisions.is_empty(), |column| {
+            column.child(section("DECISIONS")).children(design.decisions.iter().map(|decision| {
+                Label::new(format!(
+                    "{} — {}",
+                    decision.text.as_deref().unwrap_or(""),
+                    decision.rationale.as_deref().unwrap_or("")
+                ))
+                .size(LabelSize::Small)
+            }))
+        })
+        .when(!design.risks.is_empty(), |column| {
+            column
+                .child(section("RISKS"))
+                .children(design.risks.iter().map(|risk| bullet(risk)))
+        })
+}
+
 impl Render for PlanView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let editor_bg = cx.theme().colors().editor_background;
@@ -370,13 +466,11 @@ impl Render for PlanView {
                 .into_any_element(),
             Some(plan) => v_flex()
                 .size_full()
-                .child(self.render_header(plan))
+                .child(self.render_header(plan, cx))
                 .child(match self.lens {
                     Lens::Tasks => self.render_tasks(plan, cx).into_any_element(),
-                    Lens::Spec => Label::new("Spec lens — T7").color(Color::Muted).into_any_element(),
-                    Lens::Design => {
-                        Label::new("Design lens — T7").color(Color::Muted).into_any_element()
-                    }
+                    Lens::Spec => render_spec(plan).into_any_element(),
+                    Lens::Design => render_design(plan).into_any_element(),
                 })
                 .into_any_element(),
         };
