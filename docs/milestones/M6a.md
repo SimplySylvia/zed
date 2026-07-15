@@ -1,8 +1,21 @@
 # M6a · Execution — launch + the per-task loop spine — milestone note
 
-**Status:** code complete; `plan_core` + `plan_server` + `plan_ui` + full `zed` build green.
-**§13 visual verification under One Dark is the developer gate.** First slice of M6 (execution);
-M6b (gates/guards) and M6c (amendments/control) follow.
+**Status:** COMPLETE. `plan_core` + `plan_server` + `plan_ui` + full `zed` build green;
+**§13 visual verification under One Dark confirmed by the developer (2026-07-15)** — approve →
+`▶ Launch` → `executing` + lease + accent-pulse tab dot, and the in-progress task spotlight.
+First slice of M6 (execution); M6b (gates/guards) and M6c (amendments/control) follow.
+
+### UI follow-ups fixed during §13 (committed separately, `[PLAN]`)
+Discovered while validating the launch flow; all `plan_ui`-only, additive:
+- **Panel toggle** — the status pill now opens **and closes** the panel (it used
+  `toggle_panel_focus`, which only closes a focused panel; a status-bar click doesn't retain
+  focus). Now checks whether Plan is the visible dock panel and toggles explicitly.
+- **Pill hover + selected** — standard `element.hover` on hover (G8) and a solid
+  `element.selected` fill while the panel is open, matching the other status-bar toggles;
+  replaced the always-on faint tint/border.
+- **Pill active emphasis** — `shadow_sm` on the open pill so the active state reads clearly raised.
+- **"Open as tab"** — a Maximize icon button in the panel header (F1.3) opens/activates the full
+  Plan document tab, via a shared `PlanView::open_tab`.
 
 **Feature IDs:** F4.1 (launch + lease + per-task loop), F3.6 (Approve→Launch), F4.3 (active-task
 spotlight), F11.3 (executor lease), F6.3 (PreToolUse enforcement — from M2), F6.1 (skill loop).
@@ -64,7 +77,7 @@ gained the Launch primary + spotlight. **No upstream files touched** — `FORK_D
 - [x] Tab: `▶ Launch` from approved → executing + lease; active-task spotlight; executing chrome.
 - [x] Builds green (`plan_core`/`plan_server`/`plan_ui`/`zed`); clippy clean; pure logic test-first.
 - [x] `docs/milestones/M6a.md` written; FORK_DIFF unchanged.
-- [ ] **§13 visual verification under One Dark** — developer gate (protocol above).
+- [x] **§13 visual verification under One Dark** — confirmed by the developer (2026-07-15).
 
 ## Next: M6b — Gates + step guards
 GATE-task pause + evidence card (F4.5), step guards holding at the step via the PreToolUse hook
