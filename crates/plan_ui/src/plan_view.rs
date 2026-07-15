@@ -21,7 +21,7 @@ use plan_core::{
     exec, lint, rev, store,
 };
 use ui::prelude::*;
-use ui::{Button, ButtonStyle, Indicator, TintColor, Tooltip};
+use ui::{Button, ButtonStyle, CommonAnimationExt, Indicator, TintColor, Tooltip};
 use workspace::{
     Workspace,
     item::{Item, ItemEvent, SerializableItem, TabContentParams},
@@ -432,12 +432,17 @@ impl PlanView {
             .gap_2()
             .p_3()
             .child(sechead("TASKS", cx))
-            .children(plan.tasks.iter().map(|task| self.render_task_card(task, cx)))
+            .children(
+                plan.tasks
+                    .iter()
+                    .enumerate()
+                    .map(|(index, task)| self.render_task_card(index, task, cx)),
+            )
     }
 
     /// Task card (compliance §7 / design-spec §3.5) with a flag affordance and its
     /// anchored comments. Structural first pass — fidelity gaps recorded for §13.
-    fn render_task_card(&self, task: &Task, cx: &Context<Self>) -> impl IntoElement {
+    fn render_task_card(&self, index: usize, task: &Task, cx: &Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors();
         let status = cx.theme().status();
         let border = if task.status == TaskStatus::InProgress {
@@ -449,11 +454,11 @@ impl PlanView {
         } else {
             colors.border_variant
         };
-        let (glyph, glyph_color) = status_glyph(task);
         let done = task.status == TaskStatus::Done;
         // Active-task spotlight (F4.3): the in-progress card is info-tinted + bordered.
         let active = task.status == TaskStatus::InProgress;
         let guarded = task.steps.iter().filter(|step| step.guard.is_some()).count();
+        let title = task.title.clone().unwrap_or_default();
 
         let comment_rows: Vec<_> = self
             .plan
@@ -494,18 +499,25 @@ impl PlanView {
                     .gap_2()
                     .items_center()
                     .flex_wrap()
-                    .child(Label::new(glyph).color(glyph_color))
+                    .child(render_checkbox(task, cx))
                     .child(
-                        Label::new(task.id.clone())
+                        Label::new(format!("{}", index + 1))
+                            .buffer_font(cx)
                             .size(LabelSize::Small)
                             .color(Color::Muted),
                     )
-                    .child(
-                        Label::new(task.title.clone().unwrap_or_default())
-                            .color(if done { Color::Muted } else { Color::Default }),
-                    )
+                    .child(if done {
+                        div()
+                            .line_through()
+                            .text_color(colors.text_muted)
+                            .child(title)
+                            .into_any_element()
+                    } else {
+                        Label::new(title).into_any_element()
+                    })
+                    // Chips in mockup order: ticket · system · guard · sha · tests.
                     .when_some(task.ticket.clone(), |row, ticket| {
-                        row.child(chip(ticket, colors.text_muted))
+                        row.child(crate::mono_chip(ticket, colors.text_accent, cx))
                     })
                     .when_some(task.system.clone(), |row, system| {
                         row.child(chip(system.to_uppercase(), system_color(Some(&system), cx)))
@@ -520,6 +532,10 @@ impl PlanView {
                             cx,
                         ))
                     })
+                    .when(task.artifacts.tests.is_some(), |row| {
+                        row.child(chip("✓ tests", status.created))
+                    })
+                    .child(div().flex_1())
                     .child(
                         Button::new(SharedString::from(format!("flag-{block}")), "⚑").on_click(
                             cx.listener(move |this, _, _window, cx| {
@@ -536,6 +552,7 @@ impl PlanView {
                         .map(|(index, step)| render_step(index, step, cx)),
                 ),
             )
+            .children(task_timeline(task, cx))
             .children(comment_rows)
             .children(self.guard_controls(task, cx))
             .children(self.recovery_controls(task, cx))
@@ -1150,19 +1167,74 @@ fn render_step(index: usize, step: &Step, cx: &App) -> impl IntoElement {
         .children(guard_chip)
 }
 
-/// The checkbox glyph + color for a task's state (compliance §7 vocabulary).
-fn status_glyph(task: &Task) -> (&'static str, Color) {
+/// The task checkbox (compliance §7 vocabulary): 15px rounded box — empty pending,
+/// accent spinner running, success ✓ fill done, error ✕ fill failed, amber ⏸
+/// outline gate, amber ⚠ interrupted.
+fn render_checkbox(task: &Task, cx: &App) -> AnyElement {
+    let colors = cx.theme().colors();
+    let status = cx.theme().status();
+    let on_fill = colors.editor_background;
     if task.gate && task.status == TaskStatus::Pending {
-        return ("⏸", Color::Modified);
+        return cb_box(status.modified, None, "⏸", status.modified);
     }
     match task.status {
-        TaskStatus::Pending => ("○", Color::Placeholder),
-        TaskStatus::InProgress => ("◐", Color::Accent),
-        TaskStatus::Done => ("✓", Color::Created),
-        TaskStatus::Failed => ("✕", Color::Error),
-        TaskStatus::Skipped => ("–", Color::Muted),
-        TaskStatus::Interrupted => ("⚠", Color::Warning),
+        TaskStatus::InProgress => Icon::new(IconName::ArrowCircle)
+            .size(IconSize::Small)
+            .color(Color::Accent)
+            .with_rotate_animation(2)
+            .into_any_element(),
+        TaskStatus::Done => cb_box(status.created, Some(status.created), "✓", on_fill),
+        TaskStatus::Failed => cb_box(status.deleted, Some(status.deleted), "✕", on_fill),
+        TaskStatus::Interrupted => cb_box(status.modified, None, "⚠", status.modified),
+        TaskStatus::Skipped => cb_box(colors.border, None, "–", colors.text_muted),
+        TaskStatus::Pending => cb_box(colors.border, None, "", colors.text_muted),
     }
+}
+
+/// A 15px checkbox box (§7): border + optional fill + centered glyph.
+fn cb_box(border: Hsla, fill: Option<Hsla>, glyph: &'static str, glyph_color: Hsla) -> AnyElement {
+    h_flex()
+        .size(px(15.))
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded_sm()
+        .border_1()
+        .border_color(border)
+        .when_some(fill, |element, fill| element.bg(fill))
+        .child(
+            div()
+                .text_size(px(10.))
+                .text_color(glyph_color)
+                .child(glyph),
+        )
+        .into_any_element()
+}
+
+/// A task's timeline rows (F4.3): mono verb column + detail, under the steps.
+fn task_timeline(task: &Task, cx: &App) -> Vec<AnyElement> {
+    let verb_color = syntax_color(cx, "type");
+    task.timeline
+        .iter()
+        .map(|entry| {
+            h_flex()
+                .pl_4()
+                .gap_2()
+                .child(
+                    Label::new(entry.kind.clone().unwrap_or_default())
+                        .buffer_font(cx)
+                        .size(LabelSize::XSmall)
+                        .color(Color::Custom(verb_color)),
+                )
+                .child(
+                    Label::new(entry.detail.clone().unwrap_or_default())
+                        .buffer_font(cx)
+                        .size(LabelSize::XSmall)
+                        .color(Color::Muted),
+                )
+                .into_any_element()
+        })
+        .collect()
 }
 
 /// System-badge color (design-spec §3.5): Backend purple / Frontend teal /
