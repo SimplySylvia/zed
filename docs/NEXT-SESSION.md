@@ -3,7 +3,7 @@
 **How to use:** point a fresh agent at this file (or paste the brief below). It's the kickoff
 for continuing the **Plan** feature. Kept current at the end of each session.
 
-_Last updated: after M5a (2026-07-14). On branch `plan`._
+_Last updated: after M5b (2026-07-15). On branch `plan`._
 
 ---
 
@@ -18,10 +18,13 @@ results, deferred backlog). Confirm you've read Part III + the milestone notes b
 proposing anything.
 
 ### Status
-M0–M4 and M5a are **complete and visually verified** (45 `[PLAN-*]` commits). Crates:
-- `plan_core` — schema / store / validate / **anchor** (fuzzy re-anchoring) / **comments**.
-- `plan_server` — Rust `rmcp` MCP server + Claude Code hooks; reuses `plan_core`.
-- `plan_ui` — Plan tab + status pill + dock panel + review UI.
+M0–M4, M5a and M5b are **complete and visually verified**. Crates:
+- `plan_core` — schema / store / validate / **anchor** (fuzzy re-anchoring) / **comments** /
+  **rev** (staged-revision stage/apply/reject/resolve).
+- `plan_server` — Rust `rmcp` MCP server + Claude Code hooks; reuses `plan_core`. Review +
+  **`plan_propose_revision`** tools.
+- `plan_ui` — Plan tab + status pill + dock panel + review UI + **staged-revision change cards
+  + Approve gating**.
 - `plan-agent/` — planning skill + hooks wiring + Claude Code settings fragment.
 
 Upstream footprint is only the M0 registration lines + the M4 pill line — all tracked in
@@ -43,15 +46,21 @@ docs are silent/contradictory. All `plan_ui` work is governed by the `plan-ui-de
 (PRD §14); flag v1 pulls instead of building them.
 
 ### Next up
-- **M5b** — staged revisions: `plan_propose_revision(hunks)` + per-hunk Apply/Reject reusing
-  Zed's editor diff machinery (git_ui hunk patterns; see zed-notes study #5/#7), change cards
-  (old→new + provenance chips), and **Approve gating** (Approve enabled only at zero open
-  blockers, F3.6).
-- **M5c** — the `.plans/policy.json` lint engine + auto-flags (single-source now: the server
-  reuses `plan_core`).
+- **M5c** — the `.plans/policy.json` lint engine (Appendix B) as `plan_core::lint`, reused by
+  the server: every-task-has-tests · criteria-link-tasks · files-must-exist · prod-requires-gate
+  · max-files-per-task · ticket-coverage + git format rules; agent auto-fixes what it can, the
+  rest become auto-flags (author: plan-lint). **Blocker-severity findings gate Approve — wire
+  into the F3.6 gating already built in M5b** (`open_blocker_count`/`approve_enabled` in
+  `plan_ui::plan_view`). This closes out the M5 review-loop milestone.
 - Then **M6** execution · **M7** git · **M8** tickets · **M9** settings + hardening.
 
-**Start by writing the M5b plan for the user's sign-off — no code until approved.**
+**Start by writing the M5c plan for the user's sign-off — no code until approved.**
+
+M5b left these for later (recorded in `docs/milestones/M5b.md`): staged-revision **mini-buffers**
+(real editor-diff rendering vs the current GPUI chrome), **pushback UI** (F3.4c), inline **Δ
+chips** (F3.5), **acceptance-criterion revision targets** (`set_block_text` writes task/step
+only), and the **auto-resolve question** — should applying a hunk `from` a blocker auto-`resolve`
+that comment (F3.4d nuance) rather than mark it `addressed`?
 
 ### Build / run
 Every build needs:

@@ -1,8 +1,10 @@
 # M5b · Review loop — staged revisions + Approve gating — milestone note
 
-**Status:** code complete, `plan_core` + `plan_server` + `plan_ui` + full `zed` build green;
-**§13 visual verification under One Dark is the outstanding developer gate** (drive the
-staged-revision card + Approve gating per the protocol below).
+**Status:** COMPLETE. `plan_core` + `plan_server` + `plan_ui` + full `zed` build green;
+**§13 visual verification under One Dark confirmed by the developer (2026-07-15)** — the agent
+proposes a revision, the staged-revision card renders with provenance, per-hunk Apply/Reject
+(and Apply all) rewrite the target blocks and bump rev once, and the blocker chip disables
+Approve until resolved. Deviations (below) remain.
 
 **Feature IDs:** F9.3 (staged revisions — pending diff, per-hunk Apply/Reject), F3.5 (change
 traceability — provenance), F3.6 (Approve — enabled only at zero open blockers), F6.2
@@ -68,6 +70,12 @@ blockers Approve transitions the plan to `approved` (tab dot → success).
 - **Acceptance-criterion revision targets** — out of scope for 5b (approved q #1 option a);
   `set_block_text` writes task/step blocks only. A criterion-targeted hunk no-ops safely.
 - **External plan.json edits under a pending revision** — §12 hardening for M9.
+- **Auto-resolve semantics (observed during §13)** — `resolve_revision` sets a hunk's source
+  comment to `addressed` (not `resolved`), so applying a revision that answers a blocker does
+  **not** clear the Approve gate — the user still clicks ✓ resolve. This is faithful to F3.4d
+  ("resolution belongs to the user"), but F3.4d also says *accepted suggestions auto-resolve*;
+  whether an applied-from-a-blocker hunk should auto-`resolve` is an open question for M5c /
+  the review-fidelity pass. Current behavior kept deliberately (safe: never auto-approves).
 
 **§13 protocol to run (developer, under One Dark):**
 1. Seed a test plan with a `pending_revision` (or call `plan_propose_revision`); open the Plan
@@ -94,7 +102,7 @@ these synchronous subprocess-driving tests don't do.)
 - [x] Approve gated (disabled + tooltip while a blocker is open; enabled at zero → approved).
 - [x] Builds green (`plan_core`/`plan_server`/`plan_ui`/`zed`); clippy clean; pure logic test-first.
 - [x] `docs/milestones/M5b.md` written; FORK_DIFF unchanged.
-- [ ] **§13 visual verification under One Dark** — developer gate (protocol above).
+- [x] **§13 visual verification under One Dark** — confirmed by the developer (2026-07-15).
 
 ## Next: M5c — the policy.json lint engine
 `plan_core::lint` rule engine over `.plans/policy.json` (Appendix B) reused by the server:
