@@ -36,6 +36,11 @@ impl PlanFollower {
         self.session.as_deref()
     }
 
+    /// The workspace's agent panel (used to reach the active thread's events).
+    pub fn agent_panel(&self) -> Option<Entity<AgentPanel>> {
+        self.agent_panel.as_ref().and_then(WeakEntity::upgrade)
+    }
+
     /// Recompute the plan from the active thread. Returns true if it changed
     /// (so the caller can `cx.notify()` only when needed).
     pub fn refresh(&mut self, cx: &App) -> bool {

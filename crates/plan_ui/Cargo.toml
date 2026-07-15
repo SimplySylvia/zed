@@ -12,6 +12,7 @@ workspace = true
 path = "src/plan_ui.rs"
 
 [dependencies]
+acp_thread.workspace = true
 agent_ui.workspace = true
 anyhow.workspace = true
 gpui.workspace = true

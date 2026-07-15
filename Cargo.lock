@@ -13648,6 +13648,7 @@ dependencies = [
 name = "plan_ui"
 version = "0.1.0"
 dependencies = [
+ "acp_thread",
  "agent_ui",
  "anyhow",
  "gpui",
