@@ -582,3 +582,11 @@ ids exist and only one is the right key:
 Seam to close later: the agent must stamp `plan.thread` with the real ACP session id (the M2
 dogfood used arbitrary strings). `AgentPanel`/`AgentPanelEvent` are `pub` (agent_ui.rs:74) —
 no upstream patch; `plan_ui` gains an additive `agent_ui` dep.
+
+### Threads-sidebar plan state (F1.5, M4-T6) — DEFERRED
+Showing plan state ("plan 2/5", "gate — needs you") + worktree badges on the agent panel's
+thread rows would require modifying `agent_ui`'s thread-list row rendering — i.e. patching
+upstream beyond the additive-crate boundary. Per PRD M4 ("thread-row state via sidebar
+integration if cheap or defer"), **deferred**. The pill + panel already surface the active
+thread's plan state; per-thread sidebar badges wait until there's reason to touch `agent_ui`
+(or an additive hook appears).
