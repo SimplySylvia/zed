@@ -6,7 +6,8 @@ use std::path::Path;
 use anyhow::Result;
 use plan_core::rev::HunkSpec;
 use plan_core::{
-    HistoryEntry, Plan, Status, Task, TaskStatus, TimelineEntry, anchor, comments, lint, rev, store,
+    HistoryEntry, Plan, Status, Task, TaskStatus, TimelineEntry, anchor, comments, exec, lint, rev,
+    store,
 };
 
 /// Create a new draft plan and persist it atomically. The plan starts in
@@ -262,6 +263,16 @@ pub fn apply_suggestion(plans_dir: &Path, id: &str, comment_id: &str) -> Result<
 pub fn propose_revision(plans_dir: &Path, id: &str, hunks: Vec<HunkSpec>) -> Result<Plan> {
     let mut plan = store::load(plans_dir, id)?;
     rev::stage_revision(&mut plan, hunks);
+    store::save(plans_dir, &plan)?;
+    Ok(plan)
+}
+
+/// Launch the plan (F4.1): transition `approved → executing` and take the executor
+/// lease for `thread` (F11.3). Git branch/worktree setup (F10.2) is M7; this only
+/// moves plan state. The per-task loop then uses `task_update`.
+pub fn launch(plans_dir: &Path, id: &str, thread: &str) -> Result<Plan> {
+    let mut plan = store::load(plans_dir, id)?;
+    exec::launch(&mut plan, thread)?;
     store::save(plans_dir, &plan)?;
     Ok(plan)
 }

@@ -122,6 +122,13 @@ struct CommentRefArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+struct PlanLaunchArgs {
+    id: String,
+    /// The executing thread's ACP session id; takes the executor lease (F11.3).
+    thread: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct HunkArg {
     /// Block id this hunk rewrites, e.g. "t2.s1" (step) or "t3" (task title).
     target: Option<String>,
@@ -312,6 +319,16 @@ impl PlanServer {
             })
             .collect();
         let plan = tools::propose_revision(&plans_dir(), &args.id, hunks).map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Launch an approved plan (F4.1).
+    #[tool(description = "Launch an approved plan (→ executing) and take the executor lease")]
+    async fn plan_launch(
+        &self,
+        Parameters(args): Parameters<PlanLaunchArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::launch(&plans_dir(), &args.id, &args.thread).map_err(to_error)?;
         serde_json::to_string_pretty(&plan).map_err(to_error)
     }
 
