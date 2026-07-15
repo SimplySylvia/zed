@@ -7,6 +7,7 @@
 
 pub mod anchor;
 pub mod comments;
+pub mod lint;
 pub mod rev;
 pub mod schema;
 pub mod store;
