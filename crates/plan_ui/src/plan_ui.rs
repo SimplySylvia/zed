@@ -20,6 +20,7 @@ use workspace::{
 };
 
 pub mod following;
+pub mod plan_pill;
 pub mod plan_view;
 
 actions!(plan_panel, [ToggleFocus]);

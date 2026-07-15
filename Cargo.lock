@@ -13653,6 +13653,7 @@ dependencies = [
  "gpui",
  "plan_core",
  "project",
+ "serde_json",
  "ui",
  "workspace",
 ]

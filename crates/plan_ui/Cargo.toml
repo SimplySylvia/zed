@@ -19,3 +19,6 @@ plan_core.workspace = true
 project.workspace = true
 ui.workspace = true
 workspace.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
