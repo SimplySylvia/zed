@@ -13650,6 +13650,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "gpui",
+ "plan_core",
  "ui",
  "workspace",
 ]

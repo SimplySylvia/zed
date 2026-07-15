@@ -19,6 +19,8 @@ use workspace::{
     dock::{DockPosition, Panel, PanelEvent},
 };
 
+pub mod plan_view;
+
 actions!(plan_panel, [ToggleFocus]);
 
 const PLAN_PANEL_KEY: &str = "PlanPanel";
@@ -37,8 +39,9 @@ pub fn init(cx: &mut App) {
     if !plan_enabled() {
         return;
     }
-    cx.observe_new(|workspace: &mut Workspace, _window, _cx| {
+    cx.observe_new(|workspace: &mut Workspace, _window, cx| {
         register(workspace);
+        plan_view::PlanView::register(workspace, cx);
     })
     .detach();
 }

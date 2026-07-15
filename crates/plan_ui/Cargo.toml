@@ -14,5 +14,6 @@ path = "src/plan_ui.rs"
 [dependencies]
 anyhow.workspace = true
 gpui.workspace = true
+plan_core.workspace = true
 ui.workspace = true
 workspace.workspace = true
