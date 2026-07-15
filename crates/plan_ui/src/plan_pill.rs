@@ -93,7 +93,9 @@ impl Render for PlanPill {
                     .px_1p5()
                     .rounded_full()
                     .cursor_pointer()
-                    .when(panel_open, |pill| pill.bg(selected_bg))
+                    // Active state: solid selected fill + a drop shadow so it reads
+                    // clearly "raised/selected" (more noticeable than the fill alone).
+                    .when(panel_open, |pill| pill.bg(selected_bg).shadow_sm())
                     .hover(|style| style.bg(hover_bg))
                     .child(
                         Label::new(format!("◆ Plan {fragment}"))
