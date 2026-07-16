@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use crate::following;
 use agent_ui::{AgentPanel, AgentPanelEvent};
+use git_ui::commit_view::CommitView;
 use anyhow::Result;
 use project::Project;
 use project::git_store::GitStoreEvent;
@@ -922,7 +923,39 @@ impl PlanView {
                         row.child(chip(format!("⛨ {guarded} guarded"), status.modified))
                     })
                     .when_some(task.artifacts.sha.clone(), |row, sha| {
-                        row.child(sha_chip(&sha, task.artifacts.diffstat.as_deref(), cx))
+                        // The sha chip stays presentational; wrapping it here makes only
+                        // tasks that carry a sha clickable, opening the commit's diff
+                        // read-only as a workspace tab (F4.6d).
+                        let click_sha = sha.clone();
+                        row.child(
+                            div()
+                                .id(SharedString::from(format!("sha-{}", task.id)))
+                                .cursor_pointer()
+                                .on_click(cx.listener(move |this, _event, window, cx| {
+                                    let Some(workspace) = this.workspace.upgrade() else {
+                                        return;
+                                    };
+                                    let Some(repo) = workspace
+                                        .read(cx)
+                                        .project()
+                                        .read(cx)
+                                        .active_repository(cx)
+                                    else {
+                                        return;
+                                    };
+                                    CommitView::open(
+                                        click_sha.clone(),
+                                        repo.downgrade(),
+                                        this.workspace.clone(),
+                                        None,
+                                        None,
+                                        window,
+                                        cx,
+                                    );
+                                }))
+                                .tooltip(Tooltip::text("View commit diff"))
+                                .child(sha_chip(&sha, task.artifacts.diffstat.as_deref(), cx)),
+                        )
                     })
                     .when_some(task.artifacts.tests.as_ref(), |row, tests| {
                         let (label, failed) = tests_chip_label(tests);
