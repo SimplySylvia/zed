@@ -233,7 +233,12 @@ impl Panel for PlanPanel {
     }
 
     fn activation_priority(&self) -> u32 {
-        6
+        // Must be unique across all panels (the dock enforces this for a
+        // deterministic status-bar order). 6 collided with OutlinePanel; a high,
+        // fork-distinctive value sorts the Plan toggle last and avoids upstream
+        // collisions. Re-homing the panel (settings-driven dock change) runs the
+        // uniqueness check, so this must stay unique across upstream merges.
+        100
     }
 }
 

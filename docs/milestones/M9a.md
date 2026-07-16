@@ -32,6 +32,14 @@ settings-behavior + page visual check folds into M9b).
 - **`from_settings` unwraps** (matches the git-panel template) — relies on `default.json` having
   every default; all 5 are present + the `settings` crate's default-validation tests pass (31 green).
 
+## §13 fix (found during the M9b visual check)
+Persisting `set_position` re-homes the panel via the `SettingsStore` observer, which runs the
+dock's **global activation-priority uniqueness check**. `PlanPanel`'s priority was `6` — colliding
+with `OutlinePanel` (a latent bug since M0, never triggered while `set_position` was a no-op).
+Changing the dock panicked. Fixed by giving `PlanPanel` a **unique, fork-distinctive priority
+(100)** (upstream uses 0–3, 5–7). Must stay unique across upstream merges — the uniqueness check
+is loud, so a future collision is an easy startup fix.
+
 ## Fork discipline (the M9 caveat)
 This is the milestone that **deliberately breaks the near-zero fork diff**, along a well-trodden
 path. Upstream files touched (all in FORK_DIFF): `settings_content.rs` (+key), `default.json`
