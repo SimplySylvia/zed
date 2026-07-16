@@ -346,6 +346,39 @@ impl PlanPanel {
 
     fn render_plan(&self, plan: &Plan, cx: &mut Context<Self>) -> impl IntoElement {
         let border = cx.theme().colors().border_variant;
+        // Left/right docks are narrow ("mobile") — stack the pipeline + live columns
+        // vertically instead of side-by-side (there isn't room for two columns).
+        let stacked = matches!(
+            crate::plan_settings::PlanSettings::get_global(cx).dock,
+            DockPosition::Left | DockPosition::Right
+        );
+        let pipeline = v_flex()
+            .flex_1()
+            .min_h_0()
+            .px_3()
+            .py_2()
+            .child(panel_pipeline(plan, cx));
+        let activity = v_flex()
+            .flex_1()
+            .min_h_0()
+            .px_3()
+            .py_2()
+            .child(panel_activity(&self.activity, cx));
+        let body = if stacked {
+            v_flex()
+                .flex_1()
+                .min_h_0()
+                .child(pipeline.border_b_1().border_color(border))
+                .child(activity)
+                .into_any_element()
+        } else {
+            h_flex()
+                .flex_1()
+                .min_h_0()
+                .child(pipeline.border_r_1().border_color(border))
+                .child(activity)
+                .into_any_element()
+        };
         v_flex()
             .size_full()
             .child(
@@ -377,22 +410,9 @@ impl PlanPanel {
                             ),
                     ),
             )
-            .child(
-                // Body (§4): pipeline column (border-right) + live activity column.
-                h_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .px_3()
-                            .py_2()
-                            .border_r_1()
-                            .border_color(border)
-                            .child(panel_pipeline(plan, cx)),
-                    )
-                    .child(v_flex().flex_1().px_3().py_2().child(panel_activity(&self.activity, cx))),
-            )
+            // Body (§4): pipeline + live activity — side-by-side when docked bottom,
+            // stacked when docked left/right (narrow).
+            .child(body)
     }
 }
 

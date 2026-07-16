@@ -151,6 +151,10 @@ under One Dark). If they disagree, stop and flag.
 - [ ] Live column rows: teal mono verb column (plan/edit/run/guard/hook/ev/drift) +
   detail; failures red, completions green, live row pulses.
 - [ ] Contextual header action matches the matrix primary for panel-open states.
+- [ ] Body layout is responsive to the dock: **pipeline + live side-by-side when docked
+  bottom** (wide), **stacked vertically when docked left/right** (narrow) — a left/right dock
+  doesn't have room for two columns. *(Added 2026-07-15 per developer feedback; the design's
+  "2 columns" assumed the bottom dock.)*
 
 ## 11. Intake wizard [F2.0/F2.3b]
 
