@@ -3,8 +3,9 @@
 **How to use:** point a fresh agent at this file (or paste the brief below). It's the kickoff
 for continuing the **Plan** feature. Kept current at the end of each session.
 
-_Last updated: after M7 (2026-07-15) — git complete (7a branch/commit core + enforcement · 7b
-branch strip + commit rail UI). On branch `plan`._
+_Last updated: after M8 (2026-07-15) — tickets complete (8a store/coverage/lint · 8b cards +
+coverage meter + drift UI). On branch `plan`. **M9 (settings + hardening) is the last MVP
+milestone.**_
 
 ---
 
@@ -14,37 +15,42 @@ You're continuing the "Plan" feature in a personal Zed fork (Rust + GPUI). All w
 `plan` branch. **Read first, in order:** your project memory (auto-loaded: `plan-fork-project`
 + `zed-build-environment` + **`no-coauthor-trailer`**); then `docs/PRD.md` (Part 0 context,
 **Part III working agreement — it governs HOW you work**, Part II build plan + milestones, and
-for the next section Part I §4 + Appendix A `tickets[]` (M8 tickets) and Part IV §3.2 ticket
-card)); then the milestone notes `docs/milestones/M0.md … M7b.md`; then
-`docs/zed-notes.md` (Zed internals findings, spike results, deferred backlog — study #7 = git
-state via `project::git_store`, git_ui hunk reuse). Confirm you've read Part III + the milestone
-notes before proposing anything.
+for the next section Part I §13 + Appendix B (settings homes + policy) and Part IV §7 settings
+page)); then the milestone notes `docs/milestones/M0.md … M8b.md`; then
+`docs/zed-notes.md` (Zed internals findings, spike results, deferred backlog — **study #8 =
+settings registration: the `"plan"` key + settings page touch ~3 UPSTREAM files, not purely
+additive**). Confirm you've read Part III + the milestone notes before proposing anything.
 
-**Current section: M8 (Tickets) is next — see "Next up" below. Start by writing the M8 plan for
-sign-off; no code until approved.** Never add a `Co-Authored-By` trailer to commits (see the
-Working agreement).
+**Current section: M9 (Settings + hardening) is next — the LAST MVP milestone. Start by writing
+the M9 plan for sign-off; no code until approved.** Note M9 is the one place the fork touches
+upstream beyond registration lines (study #8) — flag the conflict surface. Never add a
+`Co-Authored-By` trailer to commits (see the Working agreement).
 
 ### Status
 M0–M4, **all of M5 (5a comments · 5b staged revisions · 5c lint)**, **all of M6 (6a launch ·
-6b gates/guards · 6c amendments/failure-ladder/control)**, and **all of M7 (7a git core +
-enforcement · 7b branch strip + commit rail)** are **complete and visually verified**. A broad
+6b gates/guards · 6c amendments/failure-ladder/control)**, **all of M7 (7a git core +
+enforcement · 7b branch strip + commit rail)**, and **all of M8 (8a ticket store/coverage/lint ·
+8b ticket cards + coverage meter + drift UI)** are **complete and visually verified**. A broad
 `plan_ui` **demo-fidelity pass** is in too (card chassis, sechead + WHEN/SHALL acceptance +
 preview blocks, task-card checkbox/spinner + chip placement + per-task timeline, continuous
 commit rail, panel borders + contextual actions, pill states, first-launch fix). Crates:
 - `plan_core` — schema / store / validate / **anchor** / **comments** / **rev** / **lint**
-  (incl. **git-commit-format**) / **exec** (launch + lease + guard/gate lifecycle + `GuardPolicy`
-  + pause/resume/stop + amendments + failure ladder + recovery) / **git** (policy + branch/base/
-  trailer/commit-format/launch-guard/destructive helpers, pure).
+  (incl. **git-commit-format** + **ticket-coverage**) / **exec** (launch + lease + guard/gate
+  lifecycle + `GuardPolicy` + pause/resume/stop + amendments + failure ladder + recovery) / **git**
+  (policy + branch/base/trailer/commit-format/launch-guard/destructive helpers, pure) / **tickets**
+  (coverage + drift old→new + `coverage_blocks_done`, pure).
 - `plan_server` — Rust `rmcp` MCP server + Claude Code hooks; reuses `plan_core`. Tools: review +
   `plan_propose_revision` + `plan_lint` + `plan_launch` (now branch-guarded, stamps branch) +
-  `plan_set_branch` + `plan_record_commit` + guard/gate
+  `plan_set_branch` + `plan_record_commit` + `plan_set_tickets` + `plan_add_acceptance` +
+  `plan_resync_ticket` (Done gated on ticket coverage) + guard/gate
   (`plan_hold_guard`/`plan_clear_guard`/`plan_approve_gate`) + control
   (`plan_pause`/`plan_resume`/`plan_stop`/`plan_propose_amendment`/`plan_recover_task`);
   **PreToolUse gate** (no-plan-edit + guard/gate holds + `require_on` + **commit-format/trailer +
   destructive-op block**) + **Stop loop guard**; `plan_server::git` shells `git` (dirty/behind).
 - `plan_ui` — Plan tab (lenses, cards, task cards w/ commit rail + timeline, review UI, launch +
   guards + amendments + escalation + recovery + pause/resume/stop, **branch strip + commit rail
-  from live `git_store` + GitHub PR button**) + status pill + dock panel.
+  from live `git_store` + GitHub PR button**, **ticket header chip + Spec-lens ticket cards +
+  coverage meter + drift card**) + status pill + dock panel.
 - `plan-agent/` — planning skill (lifecycle + per-task loop + enforcement + **branch/commit git
   protocol**) + hooks + settings.
 
@@ -67,18 +73,31 @@ docs are silent/contradictory. All `plan_ui` work is governed by the `plan-ui-de
 (PRD §14); flag v1 pulls instead of building them.
 
 ### Next up
-M5 + M6 + M7 are done. Next major section:
-- **M8 — Tickets.** `tickets[]` via the agent's Jira MCP (the skill orchestrates; the plan-server
-  just stores), ticket cards + coverage meter (F2.4b/f), the **`ticket-coverage` lint** (currently
-  a recorded no-op in `plan_core::lint`), drift snapshot/resync at the F2.4g checkpoints,
-  task↔ticket commit prefixes (F2.4c — the M7 trailer/format helpers already key on `task.ticket`),
-  ticketless fallbacks (F2.4d — `plan_core::git` already has ticketless branch/trailer/format).
-- Then **M9** settings + hardening (`"plan"` settings key + settings page — see zed-notes study #8:
-  touches ~3 upstream files, not purely additive; the §12 failure drills).
+M5–M8 are done. **Last MVP section:**
+- **M9 — Settings + hardening.** The `"plan"` settings key + settings-page section (F12.1/F12.2c)
+  with presets (Careful/Balanced/Fast), policy.json severity wiring, and the **§12 failure drills**
+  (kill the server mid-write · kill Zed mid-execution · corrupt the file · edit plan.json
+  externally — each must land in a designed state, not a surprise). **Fork caveat (zed-notes study
+  #8):** the settings key + page touch **~3 upstream files** (`settings_content`, `assets/settings/
+  default.json`, `settings_ui/page_data.rs`) — the one non-additive milestone; flag + track the
+  conflict surface in FORK_DIFF. Interim fallback exists (raw-JSON settings work today), so the
+  structured page can degrade/defer if needed.
+- After M9, **MVP is complete**; then the v1 tail (peek cards → rehearsal → live evidence + diff
+  view → PR generation → worktree isolation → attention queue → …).
 
-**Start by writing the M8 plan for the user's sign-off — no code until approved.** M8 likely splits
-(ticket store/fetch + cards · coverage + `ticket-coverage` lint · drift/resync + write-back — note
-write-back F2.4e is v1).
+**Start by writing the M9 plan for the user's sign-off — no code until approved.** M9 likely splits
+(settings key + `from_settings` wiring · settings-page section + presets · §12 hardening drills).
+The settings-page slice is where the upstream touch lands — call it out.
+
+### M8 deferrals to honor (recorded in M8a/M8b notes)
+- **Write-back (F2.4e) is v1** — Launch→In Progress, Done→summary+PR comment, Abandon→reason.
+- **Attach-later commit retag via rebase (F2.4d)** — the history rewrite rides the amendment flow;
+  M8 does the ticketless↔ticketed *state* change only.
+- **`plan_add_acceptance` is add-only** — edit/remove of criteria deferred.
+- **Drift card is informational** — no Discuss/Apply buttons (`render_spec` is a free fn; applying a
+  scope change goes through the global staged-revision card); manual **↻ resync is agent-routed**.
+- **No invented timestamps** — `set_tickets`/`resync` don't stamp real `fetched_at` (crate is
+  time-free); the agent supplies it.
 
 ### M7 deferrals to honor (recorded in M7a/M7b notes)
 - **revert-task-commit** — omitted by decision: a future UI revert **routes through the agent**

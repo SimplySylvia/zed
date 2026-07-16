@@ -6,8 +6,8 @@
 > protocol** under One Dark. GPUI views get smoke coverage; TDD for any pure helper. The `plan-ui-
 > design` skill is NOT in the harness registry — read its file directly.
 
-**Status:** awaiting sign-off (not started). Second and final MVP slice of M8 (M8a is complete;
-write-back F2.4e is v1, so M8 closes with M8b).
+**Status:** COMPLETE — **§13 confirmed by the developer (2026-07-15)**. Closes M8. Second and
+final MVP slice of M8 (M8a complete; write-back F2.4e is v1).
 
 ## Goal
 Surface the M8a ticket state visually: **ticket header chip(s)** + **Spec-lens ticket cards** with

@@ -1,7 +1,9 @@
 # M8b · Tickets — cards + coverage meter + drift/resync UI — milestone note
 
-**Status:** code COMPLETE; **§13 visual verification awaiting the developer** (One Dark). `plan_ui`
-tests + clippy green; full `zed` build green. This closes MVP tickets (write-back F2.4e is v1).
+**Status:** COMPLETE — **§13 visual verification confirmed by the developer (2026-07-15)** under
+One Dark: ticket header chip, Spec-lens card + coverage meter (2/4 partial), and the drift card
+with old→new all verified. `plan_ui` tests + clippy green; full `zed` build green. **This closes
+M8 (tickets)** — write-back F2.4e is v1.
 
 **Feature IDs:** F2.4b (ticket header chip + Spec-lens cards + coverage meter), F2.4g (drift card).
 
@@ -53,6 +55,6 @@ old→new, `stamped_drift`). **No upstream files touched — `FORK_DIFF.md` unch
 - [x] Coverage meter segments + "n/m covered" match `tickets::coverage`.
 - [x] Drift card + card drift variant per §4; drift payload carries old→new (test-first).
 - [x] `plan_ui` tests + clippy green; full `zed` build; `docs/milestones/M8b.md`; FORK_DIFF unchanged.
-- [ ] **§13 visual verification under One Dark — developer gate (pending).**
+- [x] **§13 visual verification under One Dark — confirmed by the developer (2026-07-15).**
 
 ## Next (after §13): M8 complete → M9 (settings + hardening) = the last MVP milestone.
