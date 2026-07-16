@@ -17,7 +17,9 @@ use gpui::{
     IntoElement, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window,
     actions, px,
 };
+use crate::plan_settings::PlanSettings;
 use plan_core::tickets::CoverageState;
+use settings::{PlanDefaultLens, PlanRevisionMode, Settings};
 use plan_core::{
     Anchor, Comment, HistoryEntry, Hunk, Plan, Status, Step, Task, TaskStatus, Ticket, anchor,
     comments, exec, lint, rev, store, tickets,
@@ -137,7 +139,11 @@ impl PlanView {
         let session = following::active_session(cx, &agent_panel);
         self.plan = following::resolve_plan(&self.plans_dir, session.as_deref());
         self.thread_session = session;
-        if let Some(lens) = self.plan.as_ref().map(|plan| default_lens(&plan.status)) {
+        if let Some(lens) = self
+            .plan
+            .as_ref()
+            .map(|plan| resolved_default_lens(&plan.status, cx))
+        {
             self.lens = lens;
         }
         cx.notify();
@@ -151,6 +157,26 @@ impl PlanView {
         if fresh != self.plan {
             self.plan = fresh;
             cx.notify();
+        }
+        self.maybe_auto_apply_revision(cx);
+    }
+
+    /// F9.3 auto-apply: when `plan.revisions == auto_apply`, a *staged revision*
+    /// applies on arrival. Amendments (`kind: "amendment"`) always stay staged —
+    /// they're failure responses that need review.
+    fn maybe_auto_apply_revision(&mut self, cx: &mut Context<Self>) {
+        if PlanSettings::get_global(cx).revisions != PlanRevisionMode::AutoApply {
+            return;
+        }
+        let staged = self
+            .plan
+            .as_ref()
+            .and_then(|plan| plan.pending_revision.as_ref())
+            .is_some_and(|pending| {
+                pending.extra.get("kind").and_then(|kind| kind.as_str()) != Some("amendment")
+            });
+        if staged {
+            self.apply_all(cx);
         }
     }
 
@@ -1734,11 +1760,22 @@ fn chip(text: impl Into<SharedString>, color: Hsla) -> impl IntoElement {
         .child(text.into())
 }
 
-/// The default lens for a status (F12.1: default lens follows status).
+/// The default lens for a status (F12.1: `auto` follows status).
 fn default_lens(status: &Status) -> Lens {
     match status {
         Status::Executing | Status::Paused | Status::Gate | Status::Amending => Lens::Tasks,
         _ => Lens::Spec,
+    }
+}
+
+/// The default lens honoring the `plan.default_lens` setting: `auto` follows the
+/// status, otherwise the chosen lens (F12.1).
+fn resolved_default_lens(status: &Status, cx: &App) -> Lens {
+    match PlanSettings::get_global(cx).default_lens {
+        PlanDefaultLens::Auto => default_lens(status),
+        PlanDefaultLens::Spec => Lens::Spec,
+        PlanDefaultLens::Design => Lens::Design,
+        PlanDefaultLens::Tasks => Lens::Tasks,
     }
 }
 

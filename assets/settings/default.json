@@ -1037,6 +1037,24 @@
     // Default: project_diff
     "entry_primary_click_action": "project_diff",
   },
+  "plan": {
+    // Whether the "Plan" feature is enabled (the ZED_PLAN env var also enables it).
+    "enabled": false,
+    // Where to dock the Plan panel. Can be 'left', 'bottom', or 'right'.
+    "dock": "bottom",
+    // Whether the Plan panel opens on startup.
+    "auto_open": false,
+    // The default lens shown in the Plan tab.
+    //
+    // Choices: auto, spec, design, tasks
+    // Default: auto ('auto' follows the plan's status)
+    "default_lens": "auto",
+    // How agent-proposed revisions land.
+    //
+    // Choices: staged, auto_apply
+    // Default: staged
+    "revisions": "staged",
+  },
   "agent": {
     // Whether the inline assistant should use streaming tools, when available
     "inline_assistant_use_streaming_tools": true,

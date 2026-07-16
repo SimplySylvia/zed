@@ -631,8 +631,8 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
         let git_blame_status = cx.new(|_| git_ui::GitBlameStatus::default());
         let merge_conflict_indicator =
             cx.new(|cx| git_ui::MergeConflictIndicator::new(workspace, cx));
-        // Plan (fork feature) — status-bar pill, only behind the ZED_PLAN flag.
-        let plan_pill = plan_ui::plan_enabled()
+        // Plan (fork feature) — status-bar pill, only when the feature is enabled.
+        let plan_pill = plan_ui::plan_enabled(cx)
             .then(|| cx.new(|cx| plan_ui::plan_pill::PlanPill::new(workspace, cx)));
         workspace.status_bar().update(cx, |status_bar, cx| {
             status_bar.add_left_item(search_button, window, cx);
@@ -817,9 +817,12 @@ fn initialize_panels(window: &mut Window, cx: &mut Context<Workspace>) -> Task<a
                 // here so the `async move` doesn't borrow the outer handles (which are
                 // moved into `initialize_agent_panel` below).
                 let workspace_handle = workspace_handle.clone();
-                let cx = cx.clone();
+                let mut cx = cx.clone();
                 async move {
-                    if plan_ui::plan_enabled() {
+                    let enabled = cx
+                        .update(|_, cx| plan_ui::plan_enabled(cx))
+                        .unwrap_or(false);
+                    if enabled {
                         add_panel_when_ready(
                             plan_ui::PlanPanel::load(workspace_handle.clone(), cx.clone()),
                             workspace_handle,

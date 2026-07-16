@@ -164,6 +164,9 @@ pub struct SettingsContent {
 
     pub git_panel: Option<GitPanelSettingsContent>,
 
+    /// Settings for the "Plan" feature.
+    pub plan: Option<PlanSettingsContent>,
+
     pub tabs: Option<ItemSettingsContent>,
     pub tab_bar: Option<TabBarSettingsContent>,
     pub status_bar: Option<StatusBarSettingsContent>,
@@ -753,6 +756,81 @@ pub struct GitPanelSettingsContent {
     ///
     /// Default: project_diff
     pub entry_primary_click_action: Option<GitPanelClickBehavior>,
+}
+
+/// The Plan tab's default lens (PRD F12.1). `auto` follows the plan's lifecycle.
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    MergeFrom,
+    PartialEq,
+    Eq,
+    strum::VariantArray,
+    strum::VariantNames,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanDefaultLens {
+    Auto,
+    Spec,
+    Design,
+    Tasks,
+}
+
+/// How agent-proposed plan revisions land (PRD F9.3).
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    MergeFrom,
+    PartialEq,
+    Eq,
+    strum::VariantArray,
+    strum::VariantNames,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanRevisionMode {
+    /// Land as a pending diff with per-hunk apply/reject (default).
+    Staged,
+    /// Apply automatically on arrival.
+    AutoApply,
+}
+
+/// Settings for the "Plan" feature (PRD §13 — the "how you drive" home; the
+/// per-work contract lives in `.plans/policy.json`). F12.1 personal keys.
+#[with_fallible_options]
+#[derive(Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug)]
+pub struct PlanSettingsContent {
+    /// Whether the Plan feature is enabled (the `ZED_PLAN` env var also enables it).
+    ///
+    /// Default: false
+    pub enabled: Option<bool>,
+
+    /// Where to dock the Plan panel.
+    ///
+    /// Default: bottom
+    pub dock: Option<DockPosition>,
+
+    /// Whether the Plan panel opens on startup.
+    ///
+    /// Default: false
+    pub auto_open: Option<bool>,
+
+    /// The default lens shown in the Plan tab (`auto` follows the plan's status).
+    ///
+    /// Default: auto
+    pub default_lens: Option<PlanDefaultLens>,
+
+    /// How agent-proposed revisions land.
+    ///
+    /// Default: staged
+    pub revisions: Option<PlanRevisionMode>,
 }
 
 #[derive(

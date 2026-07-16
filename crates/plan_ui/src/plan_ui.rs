@@ -19,6 +19,7 @@ use gpui::{
     WeakEntity, Window, actions, px, pulsating_between,
 };
 use plan_core::{Plan, Status, Task, TaskStatus, exec, store};
+use settings::Settings;
 use ui::prelude::*;
 use ui::{
     Button, ButtonStyle, CommonAnimationExt, Icon, IconButton, IconSize, Indicator, TintColor,
@@ -31,6 +32,7 @@ use workspace::{
 
 pub mod following;
 pub mod plan_pill;
+pub mod plan_settings;
 pub mod plan_view;
 
 use crate::following::PlanFollower;
@@ -39,18 +41,21 @@ actions!(plan_panel, [ToggleFocus]);
 
 const PLAN_PANEL_KEY: &str = "PlanPanel";
 
-/// Whether the Plan feature is enabled for this session, via the `ZED_PLAN`
-/// environment flag. M0 uses an env flag rather than Zed's server-driven
-/// feature flags (which a personal fork can't control) or the `"plan"` setting
-/// (which arrives in M9). Set `ZED_PLAN=1` (or `ZED_PLAN=true`) to enable.
-pub fn plan_enabled() -> bool {
-    matches!(std::env::var("ZED_PLAN").as_deref(), Ok("1") | Ok("true"))
+/// Whether the Plan feature is enabled: the durable `"plan".enabled` setting
+/// (F12.1) **or** the `ZED_PLAN` env flag (kept for dev/CI, and because a personal
+/// fork can't use Zed's server-driven feature flags). Toggling the setting takes
+/// effect on the next launch (registration happens once at startup).
+pub fn plan_enabled(cx: &App) -> bool {
+    if matches!(std::env::var("ZED_PLAN").as_deref(), Ok("1") | Ok("true")) {
+        return true;
+    }
+    plan_settings::PlanSettings::get_global(cx).enabled
 }
 
-/// Initializes the Plan UI. A no-op unless [`plan_enabled`] is true, so an
-/// unflagged build behaves exactly like upstream.
+/// Initializes the Plan UI. A no-op unless [`plan_enabled`] is true, so a
+/// disabled build behaves exactly like upstream.
 pub fn init(cx: &mut App) {
-    if !plan_enabled() {
+    if !plan_enabled(cx) {
         return;
     }
     cx.observe_new(|workspace: &mut Workspace, _window, cx| {
@@ -179,8 +184,8 @@ impl Panel for PlanPanel {
         PLAN_PANEL_KEY
     }
 
-    fn position(&self, _window: &Window, _cx: &App) -> DockPosition {
-        DockPosition::Bottom
+    fn position(&self, _window: &Window, cx: &App) -> DockPosition {
+        crate::plan_settings::PlanSettings::get_global(cx).dock
     }
 
     fn position_is_valid(&self, position: DockPosition) -> bool {
@@ -192,12 +197,23 @@ impl Panel for PlanPanel {
 
     fn set_position(
         &mut self,
-        _position: DockPosition,
+        position: DockPosition,
         _window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
-        // M0 placeholder: position isn't persisted yet. Backing this with the
-        // "plan" setting (so right-click "move" survives restarts) lands in M9.
+        // Persist to the "plan".dock setting so right-click "move" survives restarts.
+        let Some(workspace) = self.workspace.upgrade() else {
+            return;
+        };
+        let fs = workspace.read(cx).app_state().fs.clone();
+        settings::update_settings_file(fs, cx, move |settings, _| {
+            settings.plan.get_or_insert_default().dock = Some(position.into());
+        });
+        cx.notify();
+    }
+
+    fn starts_open(&self, _window: &Window, cx: &App) -> bool {
+        crate::plan_settings::PlanSettings::get_global(cx).auto_open
     }
 
     fn default_size(&self, _window: &Window, _cx: &App) -> Pixels {
