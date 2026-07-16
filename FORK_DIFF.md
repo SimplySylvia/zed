@@ -19,10 +19,18 @@ This fork adds the **Plan** feature (see `docs/PRD.md`). Fork discipline (PRD Pa
 | `Cargo.toml` (root) | Added `crates/plan_core`/`plan_ui`/`plan_server` to `members`; added `plan_core`/`plan_ui`/`plan_server` + `rmcp` to `[workspace.dependencies]` | M0, M2 | Register the new crates + the rmcp dep in the workspace |
 | `crates/zed/Cargo.toml` | Added `plan_ui.workspace = true` | M0 | `zed` depends on `plan_ui` to init + register it |
 | `crates/zed/src/main.rs` | Added `plan_ui::init(cx);` | M0 | Initialize Plan UI (no-op unless `ZED_PLAN` is set) |
-| `crates/zed/src/zed.rs` | Flag-gated `PlanPanel` registration in `initialize_panels`; flag-gated `PlanPill` in the status bar | M0, M4 | Add the dock panel + status-bar pill when `ZED_PLAN` is set |
+| `crates/zed/src/zed.rs` | Flag-gated `PlanPanel` registration in `initialize_panels`; flag-gated `PlanPill` in the status bar; `plan_enabled(cx)` now reads the `"plan".enabled` setting too | M0, M4, M9 | Add the dock panel + status-bar pill when enabled |
+| `crates/settings_content/src/settings_content.rs` | Added `PlanSettingsContent` + `PlanDefaultLens`/`PlanRevisionMode` enums; added `pub plan: Option<PlanSettingsContent>` to `SettingsContent` | M9 | Register the `"plan"` settings key in Zed's typed settings model (F12.1) |
+| `assets/settings/default.json` | Added the `"plan"` defaults block | M9 | Every settings field needs a default (`from_settings` panics otherwise) |
+| `crates/settings/src/vscode_import.rs` | Added `plan: None` to the exhaustive `SettingsContent` initializer | M9 | Required by the new `SettingsContent.plan` field (no VS Code equivalent) |
 
-All four changes are inert unless the `ZED_PLAN` environment flag is set, so an unflagged
-build behaves exactly like upstream.
+The M0/M4 changes are inert unless the feature is enabled (`ZED_PLAN` env **or** `"plan".enabled`).
+
+**M9 fork-discipline note:** the settings key is the first upstream touch beyond registration/wiring
+(zed-notes study #8) — a well-trodden path (mirrors `GitPanelSettingsContent`) but not purely
+additive. The `settings_content` + `default.json` + `vscode_import` touches are the accepted
+conflict surface; the settings-page section (M9b) adds one more (`settings_ui/page_data.rs`). Keep
+these edits to the exact fields/rows the feature needs.
 
 ## Additive (new) files — never a merge conflict
 
