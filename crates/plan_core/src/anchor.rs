@@ -47,7 +47,7 @@ pub fn reanchor(anchor: &Anchor, plan: &Plan) -> ReanchorResult {
 
 /// The current text of a block id (`t<id>` title, `t<id>.s<id>` step text, or
 /// `a<id>` acceptance when/shall), or `None` if it no longer resolves.
-fn block_text(plan: &Plan, block: &str) -> Option<String> {
+pub fn block_text(plan: &Plan, block: &str) -> Option<String> {
     if let Some((task_id, step_id)) = block.split_once('.') {
         let task = plan.tasks.iter().find(|task| task.id == task_id)?;
         let step = task.steps.iter().find(|step| step.id == step_id)?;
