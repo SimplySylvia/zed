@@ -3,9 +3,20 @@
 **How to use:** point a fresh agent at this file (or paste the brief below). It's the kickoff
 for continuing the **Plan** feature. Kept current at the end of each session.
 
-_Last updated: after M9 (2026-07-15) — **MVP COMPLETE.** All of M0–M9 done + visually verified.
-Settings key + page (9a/9b) + §12 hardening (9c). On branch `plan`. Next is the **v1 tail** (no MVP
-milestones remain)._
+_Last updated: after **fidelity-pass-2** (2026-07-16) — MVP (M0–M9) complete, and now a full
+**plan_ui polish pass toward the mockup** is done + §13-verified: P1 chassis/tokens (filled-pill
+chips, solid-accent CTA, segmented lens switcher w/ lighter active fill, framed branch strip,
+coverage segments, continuous commit-rail spine), P2 render-existing-data (sha diffstat, tests
+count/failed, guard receipts, amendment tag + GATE badge, anchor file:line, shows_git at
+Approved/Done, amber rev-behind sync receipt, pushback→red), P3 structural adds (a derived
+`DisplayState` driving a matrix-accurate pill incl. the red FAILED row + done·PR#; toolbar caps
+status pill + body h1 title; top-of-plan banners; gate-evidence card body; live-column caps header +
+pulsing row + curated verbs; comment avatar cards; input-guard evidence panel; dedicated lint card).
+All additive in `plan_ui` (+ tiny `plan_core` touches: `LINT_AUTHOR` pub, `latest_amendment_rev`) —
+**no upstream files, FORK_DIFF unchanged.** See `docs/milestones/fidelity-pass-2.md` (+ its `-plan`)
+for the commit-by-commit record and the recorded deferrals. On branch `plan`. Next is a **PR to
+`main`** and/or the **v1 tail** (no MVP milestones remain). Dogfood seed has a
+`.plans/seed-state.py <guard|failed|gate|done|executing>` switcher for §13 state walks._
 
 ---
 
