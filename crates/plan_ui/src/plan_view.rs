@@ -17,9 +17,10 @@ use gpui::{
     IntoElement, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window,
     actions, px,
 };
+use plan_core::tickets::CoverageState;
 use plan_core::{
-    Anchor, Comment, HistoryEntry, Hunk, Plan, Status, Step, Task, TaskStatus, anchor, comments,
-    exec, lint, rev, store,
+    Anchor, Comment, HistoryEntry, Hunk, Plan, Status, Step, Task, TaskStatus, Ticket, anchor,
+    comments, exec, lint, rev, store, tickets,
 };
 use ui::prelude::*;
 use ui::{Button, ButtonStyle, CommonAnimationExt, Indicator, TintColor, Tooltip};
@@ -342,6 +343,12 @@ impl PlanView {
                     .buffer_font(cx)
                     .size(LabelSize::XSmall)
                     .color(Color::Placeholder),
+            )
+            // Ticket header chips (F2.4b) — none in ticketless plans (compliance §7).
+            .children(
+                plan.tickets
+                    .iter()
+                    .map(|ticket| crate::mono_chip(format!("⛓ {}", ticket.key), cx.theme().colors().text_accent, cx)),
             )
             .child(
                 h_flex()
@@ -1765,6 +1772,171 @@ fn syntax_color(cx: &App, name: &str) -> Hsla {
         .unwrap_or(cx.theme().colors().text_accent)
 }
 
+/// A ticket's status chip color (§4): To Do muted / In Progress info / Done created.
+fn ticket_status_color(status: Option<&str>, cx: &App) -> Hsla {
+    match status.map(str::to_ascii_lowercase) {
+        Some(status) if status.contains("progress") => cx.theme().status().info,
+        Some(status) if status.contains("done") => cx.theme().status().created,
+        _ => cx.theme().colors().text_muted,
+    }
+}
+
+/// The coverage meter (§4/§3.2): one 22×6px segment per ticket AC — covered=created,
+/// needs-update=modified, unmapped=empty — plus a "ticket AC n/m covered" label.
+fn coverage_meter(plan: &Plan, ticket_key: &str, cx: &App) -> impl IntoElement {
+    let colors = cx.theme().colors();
+    let states: Vec<CoverageState> = tickets::coverage(plan)
+        .into_iter()
+        .filter(|coverage| coverage.ticket_key == ticket_key)
+        .map(|coverage| coverage.state)
+        .collect();
+    let total = states.len();
+    let covered = states
+        .iter()
+        .filter(|state| **state != CoverageState::Unmapped)
+        .count();
+    let segments = states.into_iter().map(move |state| {
+        let mut segment = div().w(px(22.)).h(px(6.)).rounded_sm();
+        segment = match state {
+            CoverageState::Covered => segment.bg(cx.theme().status().created),
+            CoverageState::NeedsUpdate => segment.bg(cx.theme().status().modified),
+            CoverageState::Unmapped => segment.border_1().border_color(colors.border),
+        };
+        segment
+    });
+    h_flex()
+        .gap_2()
+        .items_center()
+        .child(h_flex().gap_0p5().children(segments))
+        .child(
+            Label::new(format!("ticket AC {covered}/{total} covered"))
+                .buffer_font(cx)
+                .size(LabelSize::XSmall)
+                .color(Color::Placeholder),
+        )
+}
+
+/// A Spec-lens ticket card (§4/§3.2): key · type/priority/source · status chip ·
+/// coverage meter · sync stamp + ↻. Drift variant + drift card land in M8b-T2.
+fn render_ticket_card(plan: &Plan, ticket: &Ticket, cx: &App) -> impl IntoElement {
+    let colors = cx.theme().colors();
+    let meta = [
+        ticket.ticket_type.as_deref(),
+        ticket.priority.as_deref(),
+        Some(ticket.source.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ");
+    let sync = ticket
+        .fetched_at
+        .as_deref()
+        .map(|at| format!("synced {at} · ↻"))
+        .unwrap_or_else(|| "↻".to_string());
+    // Drift variant (§4): a resynced ticket that changed carries `drift`; its card
+    // border turns modified and a drift card follows.
+    let drift = tickets::stamped_drift(ticket);
+    let border = if drift.is_some() {
+        cx.theme().status().modified
+    } else {
+        colors.border_variant
+    };
+    let card = v_flex()
+        .p_2()
+        .gap_1()
+        .rounded_md()
+        .bg(colors.panel_background)
+        .border_1()
+        .border_color(border)
+        .child(
+            h_flex()
+                .gap_2()
+                .items_center()
+                .child(crate::mono_chip(format!("⛓ {}", ticket.key), colors.text_accent, cx))
+                .when(!meta.is_empty(), |row| {
+                    row.child(Label::new(meta).size(LabelSize::XSmall).color(Color::Muted))
+                })
+                .when_some(ticket.status.clone(), |row, status| {
+                    let color = ticket_status_color(Some(&status), cx);
+                    row.child(chip(status, color))
+                })
+                .child(div().flex_1())
+                .child(coverage_meter(plan, &ticket.key, cx)),
+        )
+        .child(
+            Label::new(sync)
+                .buffer_font(cx)
+                .size(LabelSize::XSmall)
+                .color(Color::Placeholder),
+        );
+    v_flex()
+        .gap_1()
+        .child(card)
+        .children(drift.map(|drift| render_drift_card(&drift, cx)))
+}
+
+/// A single old→new drift line (§4): old struck on deleted-bg → new on created-bg.
+fn drift_diff_row(old: Option<&str>, new: Option<&str>, cx: &App) -> impl IntoElement {
+    let status = cx.theme().status();
+    h_flex()
+        .gap_1()
+        .items_center()
+        .when_some(old, |row, old| {
+            row.child(
+                div()
+                    .px_1()
+                    .rounded_sm()
+                    .line_through()
+                    .bg(status.deleted_background)
+                    .text_color(status.deleted)
+                    .text_size(px(12.))
+                    .child(SharedString::from(old.to_string())),
+            )
+        })
+        .when(old.is_some() && new.is_some(), |row| {
+            row.child(Label::new("→").size(LabelSize::XSmall).color(Color::Placeholder))
+        })
+        .when_some(new, |row, new| {
+            row.child(
+                div()
+                    .px_1()
+                    .rounded_sm()
+                    .bg(status.created_background)
+                    .text_color(status.created)
+                    .text_size(px(12.))
+                    .child(SharedString::from(new.to_string())),
+            )
+        })
+}
+
+/// The ticket drift card (§4/§3.2, F2.4g): amber header + old→new lines for the
+/// changed status / ticket ACs. Informational — applying a scope change goes
+/// through the global staged-revision card (M5b); a manual resync is agent-routed.
+fn render_drift_card(drift: &tickets::TicketDrift, cx: &App) -> AnyElement {
+    let modified = cx.theme().status().modified;
+    let mut rows: Vec<AnyElement> = Vec::new();
+    if drift.status_from.is_some() || drift.status_to.is_some() {
+        rows.push(
+            drift_diff_row(drift.status_from.as_deref(), drift.status_to.as_deref(), cx)
+                .into_any_element(),
+        );
+    }
+    for change in &drift.ac_changes {
+        rows.push(drift_diff_row(change.from.as_deref(), change.to.as_deref(), cx).into_any_element());
+    }
+    card_shell(
+        "⛓ TICKET DRIFT",
+        modified,
+        cx.theme().status().modified_background,
+        None,
+        Some("resynced".into()),
+        cx,
+    )
+    .child(card_row(cx).child(v_flex().gap_1().children(rows)))
+    .into_any_element()
+}
+
 fn render_spec(plan: &Plan, cx: &App) -> impl IntoElement {
     let spec = &plan.spec;
     let colors = cx.theme().colors();
@@ -1773,6 +1945,11 @@ fn render_spec(plan: &Plan, cx: &App) -> impl IntoElement {
     v_flex()
         .p_3()
         .gap_2()
+        .when(!plan.tickets.is_empty(), |column| {
+            column
+                .child(sechead("TICKETS", cx))
+                .children(plan.tickets.iter().map(|ticket| render_ticket_card(plan, ticket, cx)))
+        })
         .child(sechead("GOAL", cx))
         .child(Label::new(spec.goal.clone()).size(LabelSize::Small))
         .when(!spec.scope.r#in.is_empty(), |column| {
