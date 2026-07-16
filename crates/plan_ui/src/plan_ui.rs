@@ -755,6 +755,55 @@ pub(crate) enum DisplayState {
     Abandoned,
 }
 
+impl DisplayState {
+    /// The semantic family color for this state (design-spec §9) — the single source
+    /// for the pill fragment color, the toolbar caps pill, and matching banners.
+    pub(crate) fn role(&self) -> Color {
+        match self {
+            // Answered intake ("intake ✓ — drafting") is muted, not a needs-you amber.
+            DisplayState::Intake { questions } if *questions == 0 => Color::Muted,
+            DisplayState::Intake { .. } => Color::Warning,
+            DisplayState::Drafting => Color::Muted,
+            DisplayState::Lint { .. } => Color::Warning,
+            DisplayState::InReview { .. } => Color::Warning,
+            DisplayState::RevStaged => Color::Warning,
+            DisplayState::Approved => Color::Created,
+            DisplayState::GuardHold => Color::Warning,
+            DisplayState::Executing { .. } => Color::Info,
+            DisplayState::TaskFailed { .. } => Color::Error,
+            DisplayState::Gate { .. } => Color::Warning,
+            DisplayState::Done { .. } => Color::Created,
+            DisplayState::Paused => Color::Muted,
+            DisplayState::Abandoned => Color::Muted,
+        }
+    }
+
+    /// The caps state name for the toolbar status pill (design-spec §3.1).
+    pub(crate) fn caps_label(&self) -> &'static str {
+        match self {
+            DisplayState::Intake { .. } => "INTAKE",
+            DisplayState::Drafting => "DRAFTING",
+            DisplayState::Lint { .. } => "LINT",
+            DisplayState::InReview { .. } => "IN REVIEW",
+            DisplayState::RevStaged => "REV STAGED",
+            DisplayState::Approved => "APPROVED",
+            DisplayState::GuardHold => "GUARD HOLD",
+            DisplayState::Executing { .. } => "EXECUTING",
+            DisplayState::TaskFailed { .. } => "FAILED",
+            DisplayState::Gate { .. } => "GATE",
+            DisplayState::Done { .. } => "DONE",
+            DisplayState::Paused => "PAUSED",
+            DisplayState::Abandoned => "ABANDONED",
+        }
+    }
+
+    /// Whether this state is a "needs you now" hold that pulses (contract §1) — only
+    /// a GATE or a guard-hold, unlike the status dots which also pulse for live states.
+    pub(crate) fn pulses(&self) -> bool {
+        matches!(self, DisplayState::Gate { .. } | DisplayState::GuardHold)
+    }
+}
+
 /// Any ticket carries stamped drift (F2.4g) — decorates the GATE surface with a
 /// "+ drift" note so a mid-execution ticket change is visible at the pill.
 fn any_ticket_drift(plan: &Plan) -> bool {

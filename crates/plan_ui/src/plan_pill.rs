@@ -75,10 +75,7 @@ impl Render for PlanPill {
         let content = self.follower.plan().map(|plan| {
             // Only a hold (GATE / guard) is a "needs you now" pulse at the pill —
             // unlike the status dots, which also pulse for drafting/executing (G4).
-            let needs_you = matches!(
-                crate::display_state(plan),
-                DisplayState::Gate { .. } | DisplayState::GuardHold
-            );
+            let needs_you = crate::display_state(plan).pulses();
             (pill_fragment(plan), needs_you)
         });
         // Selected/active state: a solid fill while the panel is open (like the other
@@ -151,49 +148,49 @@ impl StatusItemView for PlanPill {
 /// derived from [`crate::display_state`] so the pill reflects sub-states the coarse
 /// `Status` can't (a failed task reads red, staged revs / lint / review counts, etc.).
 pub(crate) fn pill_fragment(plan: &Plan) -> (String, Color) {
-    match crate::display_state(plan) {
+    let state = crate::display_state(plan);
+    // The color family lives in one place (`DisplayState::role`); the match below
+    // only supplies the fragment text.
+    let color = state.role();
+    let text = match state {
         DisplayState::Intake { questions } => {
             // No open questions is the matrix's intake-answered row (drafting next),
             // not a needs-you state.
             if questions == 0 {
-                ("intake ✓ — drafting".into(), Color::Muted)
+                "intake ✓ — drafting".into()
             } else {
-                (format!("{questions} questions — need you"), Color::Warning)
+                format!("{questions} questions — need you")
             }
         }
-        DisplayState::Drafting => ("drafting…".into(), Color::Muted),
-        DisplayState::Lint { open } => (format!("lint {open} open"), Color::Warning),
+        DisplayState::Drafting => "drafting…".into(),
+        DisplayState::Lint { open } => format!("lint {open} open"),
         DisplayState::InReview { comments, blockers } => {
-            let text = if blockers > 0 {
+            if blockers > 0 {
                 format!("review · {comments}💬 ⚑")
             } else {
                 format!("review · {comments}💬")
-            };
-            (text, Color::Warning)
+            }
         }
-        DisplayState::RevStaged => (format!("rev {} staged", plan.rev), Color::Warning),
-        DisplayState::Approved => ("approved — launch?".into(), Color::Created),
-        DisplayState::GuardHold => ("guarded step — needs you".into(), Color::Warning),
+        DisplayState::RevStaged => format!("rev {} staged", plan.rev),
+        DisplayState::Approved => "approved — launch?".into(),
+        DisplayState::GuardHold => "guarded step — needs you".into(),
         DisplayState::Executing { done, total, acc_done, acc_total } => {
-            (format!("{done}/{total} · acc {acc_done}/{acc_total}"), Color::Info)
+            format!("{done}/{total} · acc {acc_done}/{acc_total}")
         }
         // The failed-task row (design-spec §9) — red, and it's the one the coarse
         // `Amending` status couldn't express before.
-        DisplayState::TaskFailed { task } => (format!("{task} failed — needs you"), Color::Error),
+        DisplayState::TaskFailed { task } => format!("{task} failed — needs you"),
         DisplayState::Gate { drift } => {
-            let text = if drift { "GATE + drift — needs you" } else { "GATE — needs you" };
-            (text.into(), Color::Warning)
+            if drift { "GATE + drift — needs you".into() } else { "GATE — needs you".into() }
         }
-        DisplayState::Done { pr } => {
-            let text = match pr {
-                Some(number) => format!("done ✓ · PR #{number}"),
-                None => "done ✓".to_string(),
-            };
-            (text, Color::Created)
-        }
-        DisplayState::Paused => ("paused".into(), Color::Muted),
-        DisplayState::Abandoned => ("abandoned".into(), Color::Muted),
-    }
+        DisplayState::Done { pr } => match pr {
+            Some(number) => format!("done ✓ · PR #{number}"),
+            None => "done ✓".to_string(),
+        },
+        DisplayState::Paused => "paused".into(),
+        DisplayState::Abandoned => "abandoned".into(),
+    };
+    (text, color)
 }
 
 #[cfg(test)]
@@ -251,6 +248,26 @@ mod tests {
             "thread": "a", "spec": { "goal": "g" }
         }));
         assert_eq!(pill_fragment(&plan).0, "done ✓");
+    }
+
+    #[test]
+    fn answered_intake_fragment_is_muted() {
+        // No open questions → the intake-answered row: muted text *and* color.
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "intake", "rev": 1,
+            "thread": "a", "spec": { "goal": "g" }
+        }));
+        assert_eq!(pill_fragment(&plan), ("intake ✓ — drafting".to_string(), Color::Muted));
+    }
+
+    #[test]
+    fn asking_intake_fragment_is_warning() {
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "intake", "rev": 1,
+            "thread": "a",
+            "spec": { "goal": "g", "open_questions": [{"id":"q1","text":"why?"}] }
+        }));
+        assert_eq!(pill_fragment(&plan), ("1 questions — need you".to_string(), Color::Warning));
     }
 
     #[test]

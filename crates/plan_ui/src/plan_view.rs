@@ -347,6 +347,69 @@ impl SerializableItem for PlanView {
 }
 
 impl PlanView {
+    /// The top-of-plan banner (design-spec §3.9 / contract §14) — a bold lead phrase
+    /// plus detail, tinted in the state's role color, for the states that demand a
+    /// prominent notice (guard hold, failed task, gate, completion). `None` otherwise.
+    fn render_banners(&self, plan: &Plan, cx: &Context<Self>) -> Option<AnyElement> {
+        let state = crate::display_state(plan);
+        let (lead, detail): (String, Option<String>) = match &state {
+            crate::DisplayState::GuardHold => (
+                "✋ Holding at a guarded step".into(),
+                Some(" — recording required to continue (hook-enforced)".into()),
+            ),
+            crate::DisplayState::TaskFailed { task } => {
+                // Name the proposed amendment's rev when the history recorded one.
+                let detail = match plan_core::exec::latest_amendment_rev(plan, task) {
+                    Some(Some(rev)) => format!(" — amendment rev {rev} proposed"),
+                    _ => " — amendment proposed".into(),
+                };
+                (format!("✕ Task {task} failed"), Some(detail))
+            }
+            crate::DisplayState::Gate { drift } => (
+                "◆ Gate — sign-off required".into(),
+                drift.then(|| " · ticket drift to review".into()),
+            ),
+            crate::DisplayState::Done { pr } => {
+                let acc_done = plan.spec.acceptance.iter().filter(|criterion| criterion.done).count();
+                let acc_total = plan.spec.acceptance.len();
+                let mut detail = format!(" {acc_done}/{acc_total} acceptance");
+                // Ticket AC coverage, computed like `coverage_meter` (covered = not Unmapped).
+                let coverage = plan_core::tickets::coverage(plan);
+                if !coverage.is_empty() {
+                    let covered = coverage
+                        .iter()
+                        .filter(|entry| entry.state != CoverageState::Unmapped)
+                        .count();
+                    detail.push_str(&format!(" · ticket coverage {covered}/{}", coverage.len()));
+                }
+                if let Some(number) = pr {
+                    detail.push_str(&format!(" · PR #{number}"));
+                }
+                ("✓ Plan complete.".into(), Some(detail))
+            }
+            _ => return None,
+        };
+        // Banner kind color equals the state's role (GuardHold/TaskFailed/Gate/Done all
+        // match their role), so the single `role()` mapping supplies it (contract §14).
+        let role_hsla = state.role().color(cx);
+        Some(
+            h_flex()
+                .mx_3()
+                .mt_1()
+                .rounded_lg()
+                .px_3()
+                .py_2()
+                .text_size(px(12.))
+                .border_1()
+                .border_color(role_hsla)
+                .bg(role_hsla.opacity(0.1))
+                .text_color(role_hsla)
+                .child(div().font_weight(FontWeight::BOLD).child(lead))
+                .when_some(detail, |banner, detail| banner.child(div().child(detail)))
+                .into_any_element(),
+        )
+    }
+
     /// Plan toolbar (compliance §3 / design-spec §3.1): status pill · rev · lens
     /// switcher · blocker chip (when > 0) · spacer · contextual · primary.
     fn render_header(&self, plan: &Plan, cx: &mut Context<Self>) -> impl IntoElement {
@@ -357,13 +420,31 @@ impl PlanView {
             .count();
         let blockers = open_blocker_count(plan);
         let deleted = cx.theme().status().deleted;
+        let state = crate::display_state(plan);
+        let role_hsla = state.role().color(cx);
+        // The leading caps status pill (design-spec §3.1) — a tinted, bordered pill
+        // naming the lifecycle state, replacing the old dot + "Plan — {id}" title.
+        let status_pill = div()
+            .px_1p5()
+            .rounded_full()
+            .bg(role_hsla.opacity(0.1))
+            .border_1()
+            .border_color(role_hsla)
+            .text_size(px(10.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(role_hsla)
+            .child(state.caps_label());
+        let status_pill = if state.pulses() {
+            crate::pulse(status_pill, "plan-toolbar-pill")
+        } else {
+            status_pill.into_any_element()
+        };
         h_flex()
             .gap_2()
             .px_3()
             .py_1()
             .items_center()
-            .child(crate::status_dot(&plan.status, self.status_color(), "plan-header-dot"))
-            .child(Label::new(format!("Plan — {}", plan.id)).size(LabelSize::Large))
+            .child(status_pill)
             .child(
                 Label::new(format!("rev {}", plan.rev))
                     .buffer_font(cx)
@@ -2403,6 +2484,13 @@ impl Render for PlanView {
             Some(plan) => v_flex()
                 .size_full()
                 .child(self.render_header(plan, cx))
+                .children(self.render_banners(plan, cx))
+                .child(
+                    div()
+                        .px_3()
+                        .pt_1()
+                        .child(Label::new(plan.title.clone()).size(LabelSize::Large)),
+                )
                 .children(self.render_branch_strip(plan, cx))
                 .children(self.render_escalation(plan, cx))
                 .children(self.render_gate_hold(plan, cx))
