@@ -154,6 +154,42 @@ struct RecordCommitArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+struct SetTicketsArgs {
+    id: String,
+    /// The `tickets[]` array (agent-fetched via its Jira MCP): each item is a
+    /// ticket object (source, key, type, status, priority, assignee, url, ac, …).
+    tickets: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct AddAcceptanceArgs {
+    id: String,
+    /// New acceptance criterion id (unique within the plan), e.g. "a3".
+    ac_id: String,
+    /// EARS `WHEN` clause.
+    #[serde(default)]
+    when: Option<String>,
+    /// EARS `SHALL` clause.
+    #[serde(default)]
+    shall: Option<String>,
+    /// The ticket AC this covers, e.g. "LED-212#3" (F2.4f).
+    #[serde(default)]
+    ticket_ac: Option<String>,
+    /// Task ids that satisfy this criterion.
+    #[serde(default)]
+    tasks: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ResyncTicketArgs {
+    id: String,
+    /// The ticket key to resync, e.g. "LED-212".
+    key: String,
+    /// The fresh ticket object (agent-refetched via its Jira MCP).
+    ticket: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct GuardRefArgs {
     id: String,
     task: String,
@@ -522,6 +558,46 @@ impl PlanServer {
         Parameters(args): Parameters<GateArgs>,
     ) -> Result<String, ErrorData> {
         let plan = tools::approve_gate(&plans_dir(), &args.id, &args.task).map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Store the plan's tickets from agent-fetched data (F2.4).
+    #[tool(description = "Store the plan's tickets[] (agent-fetched via its own Jira MCP)")]
+    async fn plan_set_tickets(
+        &self,
+        Parameters(args): Parameters<SetTicketsArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::set_tickets(&plans_dir(), &args.id, args.tickets).map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Author a spec acceptance criterion, optionally covering a ticket AC (F2.4f).
+    #[tool(description = "Add a spec acceptance criterion (optionally mapping a ticket AC)")]
+    async fn plan_add_acceptance(
+        &self,
+        Parameters(args): Parameters<AddAcceptanceArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::add_acceptance(
+            &plans_dir(),
+            &args.id,
+            &args.ac_id,
+            args.when.as_deref(),
+            args.shall.as_deref(),
+            args.ticket_ac.as_deref(),
+            args.tasks,
+        )
+        .map_err(to_error)?;
+        serde_json::to_string_pretty(&plan).map_err(to_error)
+    }
+
+    /// Resync one ticket from a fresh fetch; stamps drift when it changed (F2.4g).
+    #[tool(description = "Resync a ticket from a fresh fetch (stamps drift on change)")]
+    async fn plan_resync_ticket(
+        &self,
+        Parameters(args): Parameters<ResyncTicketArgs>,
+    ) -> Result<String, ErrorData> {
+        let plan = tools::resync_ticket(&plans_dir(), &args.id, &args.key, args.ticket)
+            .map_err(to_error)?;
         serde_json::to_string_pretty(&plan).map_err(to_error)
     }
 

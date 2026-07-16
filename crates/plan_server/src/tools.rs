@@ -5,10 +5,10 @@ use std::path::Path;
 
 use anyhow::Result;
 use plan_core::rev::HunkSpec;
-use plan_core::schema::Commit;
+use plan_core::schema::{Acceptance, Commit, Ticket};
 use plan_core::{
     HistoryEntry, Plan, Status, Task, TaskStatus, TimelineEntry, anchor, comments, exec, git, lint,
-    rev, store,
+    rev, store, tickets,
 };
 
 use crate::git as server_git;
@@ -37,9 +37,17 @@ pub fn get(plans_dir: &Path, id: &str) -> Result<Plan> {
     store::load(plans_dir, id)
 }
 
-/// Set the plan's lifecycle status.
+/// Set the plan's lifecycle status. Transitioning to `done` runs the ticket
+/// coverage hard-check (F2.4f): uncovered, undescoped ticket ACs block it.
 pub fn set_status(plans_dir: &Path, id: &str, status: &str) -> Result<Plan> {
     let parsed = parse_status(status)?;
+    if parsed == Status::Done {
+        let plan = store::load(plans_dir, id)?;
+        let severity = lint::Policy::load(plans_dir).ticket_coverage;
+        if let Some(reason) = tickets::coverage_blocks_done(&plan, severity) {
+            anyhow::bail!("cannot mark {id} done: {reason}");
+        }
+    }
     let summary = format!("status → {status}");
     mutate(plans_dir, id, "status", summary, move |plan| {
         plan.status = parsed;
@@ -424,6 +432,83 @@ pub fn approve_gate(plans_dir: &Path, id: &str, task: &str) -> Result<Plan> {
     exec::approve_gate(&mut plan, task)?;
     store::save(plans_dir, &plan)?;
     Ok(plan)
+}
+
+/// Store the plan's tickets (F2.4) from agent-fetched JSON. The skill's Jira MCP
+/// does the fetching; this only persists the `tickets[]` array (the server never
+/// talks to a tracker).
+pub fn set_tickets(plans_dir: &Path, id: &str, tickets: serde_json::Value) -> Result<Plan> {
+    let parsed: Vec<Ticket> = serde_json::from_value(tickets)
+        .map_err(|error| anyhow::anyhow!("invalid tickets payload: {error}"))?;
+    mutate(plans_dir, id, "set_tickets", "stored tickets".to_string(), move |plan| {
+        plan.tickets = parsed;
+        Ok(())
+    })
+}
+
+/// Author a spec acceptance criterion (F2.4f) — optionally carrying a `ticket_ac`
+/// so it covers a ticket AC. The only tool that writes `spec.acceptance`.
+pub fn add_acceptance(
+    plans_dir: &Path,
+    id: &str,
+    ac_id: &str,
+    when: Option<&str>,
+    shall: Option<&str>,
+    ticket_ac: Option<&str>,
+    tasks: Vec<String>,
+) -> Result<Plan> {
+    let acceptance = Acceptance {
+        id: ac_id.to_string(),
+        when: when.map(String::from),
+        shall: shall.map(String::from),
+        ticket_ac: ticket_ac.map(String::from),
+        tasks,
+        done: false,
+        evidence: Vec::new(),
+        waived: None,
+        extra: Default::default(),
+    };
+    let ac_id = ac_id.to_string();
+    let summary = format!("added acceptance {ac_id}");
+    mutate(plans_dir, id, "add_acceptance", summary, move |plan| {
+        if plan.spec.acceptance.iter().any(|existing| existing.id == ac_id) {
+            anyhow::bail!("acceptance {ac_id} already exists");
+        }
+        plan.spec.acceptance.push(acceptance);
+        Ok(())
+    })
+}
+
+/// Resync one ticket from a fresh fetch (F2.4g): update the stored snapshot and,
+/// when it drifted, stamp `ticket.drift` (the M8b card + coverage meter read it);
+/// a clean refetch clears the drift.
+pub fn resync_ticket(
+    plans_dir: &Path,
+    id: &str,
+    key: &str,
+    fresh: serde_json::Value,
+) -> Result<Plan> {
+    let fresh: Ticket = serde_json::from_value(fresh)
+        .map_err(|error| anyhow::anyhow!("invalid ticket payload: {error}"))?;
+    let key = key.to_string();
+    let summary = format!("resynced ticket {key}");
+    mutate(plans_dir, id, "resync_ticket", summary, move |plan| {
+        let stored = plan
+            .tickets
+            .iter_mut()
+            .find(|ticket| ticket.key == key)
+            .ok_or_else(|| anyhow::anyhow!("no ticket {key}"))?;
+        let drift = tickets::ticket_drift(stored, &fresh);
+        *stored = fresh;
+        stored.drift = drift.map(|drift| {
+            serde_json::json!({
+                "status_changed": drift.status_changed,
+                "ac_changed": drift.ac_changed,
+                "fields_changed": drift.fields_changed,
+            })
+        });
+        Ok(())
+    })
 }
 
 /// Run policy lint over the plan (F9.1): reconcile findings into `plan-lint`
