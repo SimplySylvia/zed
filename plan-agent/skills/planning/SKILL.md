@@ -22,6 +22,10 @@ your head or in prose replies — read and write the file.
 - `plan_answer_question(id, question_id, answer)` — record an answer to an open question.
 - `plan_set_status(id, status)` — advance lifecycle
   (`intake|drafting|in_review|revising|approved|executing|paused|gate|amending|done|abandoned`).
+- `plan_set_tickets(id, tickets)` — store the ticket array you fetched via your Jira MCP.
+- `plan_add_acceptance(id, ac_id, when, shall, ticket_ac?, tasks?)` — author a spec acceptance
+  criterion; pass `ticket_ac` (e.g. `"LED-212#1"`) so it **covers** that ticket AC.
+- `plan_resync_ticket(id, key, ticket)` — update a stored ticket from a fresh fetch; stamps drift.
 - `plan_launch(id, thread)` — launch an approved plan (→ `executing`) and take the executor
   lease. Returns the plan with `git.branch` / `git.base` **stamped** — the branch you create.
 - `plan_set_branch(id, branch, base)` — record the branch/base after you create it.
@@ -53,6 +57,23 @@ Build the plan in order — Spec → Design → Tasks — using the tools:
 2. `plan_update_section` for scope in/out and design risks.
 3. `plan_add_task` per task; keep tasks dependency-ordered and small (one commit each).
 Then `plan_set_status(id, "in_review")` and hand it back for review.
+
+## Tickets & coverage (F2.4)
+
+Tickets are optional (0..n). When the user says "plan LED-212" (or attaches tickets):
+1. **Fetch** the ticket(s) with **your own Jira MCP** — the plan server never talks to a tracker.
+2. `plan_set_tickets(id, [...])` to store what you fetched; seed `spec.goal` from the ticket.
+3. For **every ticket acceptance criterion**, author a plan criterion that covers it:
+   `plan_add_acceptance(id, ac_id, when, shall, ticket_ac="<KEY>#<n>", tasks=[...])` (n is
+   1-based into the ticket's `ac` list). **Coverage is enforced:** an uncovered ticket AC is a
+   `ticket-coverage` lint blocker at draft, and a **hard check blocks `done`**. Descoping is a
+   decision, never an omission — to drop a ticket AC, still add a criterion for it and record a
+   waiver rather than leaving it unmapped.
+
+**Resync (drift, F2.4g):** at session start, on plan open, before gates, and before Done,
+re-fetch each ticket and `plan_resync_ticket(id, key, {...})`. If the ticket changed it stamps
+drift (the UI shows a drift card); an AC change re-runs coverage — cover the new/changed AC or
+record a waiver. Ticketless plans (`tickets: []`) skip all of this and degrade cleanly.
 
 ## Launch — create the branch (F10.2)
 
