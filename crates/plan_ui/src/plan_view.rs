@@ -1333,13 +1333,6 @@ impl PlanView {
         }
     }
 
-    /// Staged-revision change card (compliance §6, design-spec §3.4): info header
-    /// band + "plan unchanged until applied"; one row per hunk. Rendered as GPUI
-    /// chrome for 5b — real editor-diff mini-buffers are a fidelity-pass upgrade.
-    /// Gate evidence card (F4.5) when execution holds at a GATE task: header +
-    /// one evidence row per acceptance criterion (claim + mono evidence chips) +
-    /// an actions row (Approve & finish / Re-verify all / Request changes).
-    /// Compliance §6 card chassis.
     /// Failure-ladder escalation card (F11.4): shown when a task has ≥2 amendments.
     /// Offers Take over manually / Retry (guide-me is agent-side, deferred).
     fn render_escalation(&self, plan: &Plan, cx: &Context<Self>) -> Option<AnyElement> {
@@ -1375,6 +1368,10 @@ impl PlanView {
         )
     }
 
+    /// Gate-evidence card (F4.5, compliance §6 chassis) when execution holds at a
+    /// GATE task: header + one evidence row per acceptance criterion (claim + mono
+    /// evidence chips) + an actions row (Approve & finish / Re-verify all / Request
+    /// changes; the latter two are agent-routed, handlers deferred).
     fn render_gate_hold(&self, plan: &Plan, cx: &Context<Self>) -> Option<AnyElement> {
         let hold = exec::current_hold(plan)?;
         if hold.kind != "gate" {
@@ -1478,6 +1475,9 @@ impl PlanView {
         )
     }
 
+    /// Staged-revision change card (compliance §6, design-spec §3.4): info header
+    /// band + "plan unchanged until applied"; one row per hunk. Rendered as GPUI
+    /// chrome for 5b — real editor-diff mini-buffers are a fidelity-pass upgrade.
     fn render_staged_revision(&self, plan: &Plan, cx: &Context<Self>) -> Option<AnyElement> {
         let pending = plan.pending_revision.as_ref()?;
         let status = cx.theme().status();

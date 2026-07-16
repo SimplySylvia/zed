@@ -644,8 +644,7 @@ fn panel_activity(rows: &[ActivityRow], cx: &App) -> impl IntoElement {
 }
 
 
-/// The sync receipt (F5.3b): the plan's rev + latest history timestamp.
-/// The panel header sync receipt (§10). Returns the receipt text and whether the
+/// The panel header sync receipt (§10, F5.3b). Returns the receipt text and whether the
 /// agent is a rev behind — when the latest agent-authored revision trails the plan's
 /// current rev the caller renders the amber "syncs before next task" variant.
 fn sync_receipt(plan: &Plan) -> (String, bool) {
@@ -922,9 +921,11 @@ pub(crate) fn display_state(plan: &Plan) -> DisplayState {
             if plan.pending_revision.is_some() {
                 return DisplayState::RevStaged;
             }
-            // `open_blocker_count` is author-agnostic, so a lint comment with blocker
-            // severity would count toward `blockers` and short-circuit the `Lint`
-            // branch below — acceptable because lint findings don't use blocker severity.
+            // `open_blocker_count` is author-agnostic, so a lint comment carrying
+            // blocker severity would count toward `blockers` and short-circuit the
+            // `Lint` branch below (and the lint card would still render its ⚑ glyph).
+            // Acceptable because lint findings are authored at concern severity in
+            // practice; this only matters if that ever changes.
             let blockers = plan_view::open_blocker_count(plan);
             let comments = plan
                 .comments

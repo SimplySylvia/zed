@@ -159,7 +159,8 @@ pub(crate) fn pill_fragment(plan: &Plan) -> (String, Color) {
             if questions == 0 {
                 "intake ✓ — drafting".into()
             } else {
-                format!("{questions} questions — need you")
+                let noun = if questions == 1 { "question" } else { "questions" };
+                format!("{questions} {noun} — need you")
             }
         }
         DisplayState::Drafting => "drafting…".into(),
@@ -267,7 +268,7 @@ mod tests {
             "thread": "a",
             "spec": { "goal": "g", "open_questions": [{"id":"q1","text":"why?"}] }
         }));
-        assert_eq!(pill_fragment(&plan), ("1 questions — need you".to_string(), Color::Warning));
+        assert_eq!(pill_fragment(&plan), ("1 question — need you".to_string(), Color::Warning));
     }
 
     #[test]
