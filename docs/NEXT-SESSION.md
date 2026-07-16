@@ -14,12 +14,12 @@ milestones remain)._
 You're continuing the "Plan" feature in a personal Zed fork (Rust + GPUI). All work is on the
 `plan` branch. **Read first, in order:** your project memory (auto-loaded: `plan-fork-project`
 + `zed-build-environment` + **`no-coauthor-trailer`**); then `docs/PRD.md` (Part 0 context,
-**Part III working agreement — it governs HOW you work**, Part II build plan + milestones, and
-for the next section Part I §13 + Appendix B (settings homes + policy) and Part IV §7 settings
-page)); then the milestone notes `docs/milestones/M0.md … M8b.md`; then
-`docs/zed-notes.md` (Zed internals findings, spike results, deferred backlog — **study #8 =
-settings registration: the `"plan"` key + settings page touch ~3 UPSTREAM files, not purely
-additive**). Confirm you've read Part III + the milestone notes before proposing anything.
+**Part III working agreement — it governs HOW you work**, Part II build plan + milestones, and —
+for whichever v1-tail item you pick — its Part I feature section + Part IV design section (cite the
+F-ids)); then the milestone notes `docs/milestones/M0.md … M9c.md`; then `docs/zed-notes.md` (Zed
+internals findings, spike results — the 10 study questions cover panels, items, acp events, editor
+mini-buffers, git state, settings). Confirm you've read Part III + the relevant milestone notes
+before proposing anything.
 
 **Current state: the MVP is COMPLETE (M0–M9, all §13-verified).** There is no next MVP milestone.
 The next work is the **v1 tail** (see "Next up") — pick an item, write a plan for sign-off, execute.
@@ -57,9 +57,13 @@ commit rail, panel borders + contextual actions, pill states, first-launch fix).
 - `plan-agent/` — planning skill (lifecycle + per-task loop + enforcement + **branch/commit git
   protocol**) + hooks + settings.
 
-Upstream footprint is still only the M0 registration lines + the M4 pill line — all tracked in
-`FORK_DIFF.md` (M7 added **no** upstream touch; git state is read via already-`pub`
-`project::git_store`).
+**Upstream footprint (all tracked in `FORK_DIFF.md`):** M0 registration (root+zed `Cargo.toml`,
+`main.rs`, `zed.rs`) + M4 pill line, **plus M9's settings touch** — `settings_content.rs`
+(+`PlanSettingsContent`), `assets/settings/default.json` (+defaults), `settings/vscode_import.rs`
+(+`plan: None`), `settings_ui/page_data.rs` (+`plan_page`), and the `zed.rs` `plan_enabled(cx)`
+signature. M9 was the deliberate, well-trodden non-additive milestone (mirrors the Git Panel
+template). M7/M8 added **no** upstream touch (git via already-`pub` `project::git_store`; tickets
+are pure `plan_core` + server tools). Watch these files on weekly upstream merges.
 
 ### Working agreement (PRD Part III — follow it)
 One milestone at a time. Before coding, write a short plan
@@ -89,6 +93,20 @@ F11.5b; the fidelity backlog).
 
 **Pick an item, write a plan for sign-off (`docs/milestones/…`), execute task-by-task.** Or open a
 **PR of `plan` → `main`** when the developer wants to land the MVP.
+
+### M9 deferrals to honor (recorded in M9a/M9b/M9c notes)
+- **Settings presets (Careful/Balanced/Fast, F12.4) deferred** — the page ships the 5 keys
+  individually settable; preset *cards* need a custom multi-key-write widget (DynamicItem) — a
+  polish follow-up. Policy-editor extras (regex tester / provenance / per-agent, F12.1b/F12.3b) are
+  v1.
+- **Enable is startup-once** — toggling `"plan".enabled` re-registers only on relaunch.
+- **`from_settings` unwraps** (git-panel template) — every `PlanSettingsContent` field MUST keep a
+  `default.json` default or startup panics; the `settings` crate's default tests guard it.
+- **Merge-conflict card (F11.5b) deferred** — `store::load_or_recover` handles the corrupt/
+  unparseable case (`.bak` recovery, wired into the single-plan fallback); a rendered conflict card
+  with resolve actions is v1.
+- **Recovery banner** — `load_or_recover` returns `recovered_from_backup` + `recovered_rev`; a UI
+  banner surfacing "recovered from rev N" is a fidelity add (the hook is there).
 
 ### M8 deferrals to honor (recorded in M8a/M8b notes)
 - **Write-back (F2.4e) is v1** — Launch→In Progress, Done→summary+PR comment, Abandon→reason.
@@ -124,12 +142,14 @@ F11.5b; the fidelity backlog).
 - **Fidelity backlog:** contract `input→output` grids + ui-states galleries as mini-buffers;
   rail spine currently full-height (spans slightly beyond first/last node).
 
-### M6a seams to honor (documented, non-blocking)
-- **Git → M7:** Launch doesn't create the branch/worktree yet; it launches in the current tree.
-- **ExitPlanMode seam:** the agent's ACP ExitPlanMode ↔ `plan_launch` reconciliation is handled
-  by the skill for now (like the thread-id seam); deeper ACP wiring is later.
-- **Lease enforcement → M6c:** the lease is *set* on launch; the PreToolUse gate still only checks
-  `status == executing` (leaseholder-only editing + stale-lease reclaim are M6c).
+### M6a seams (historical; status noted)
+- **Git → RESOLVED in M7:** Launch now creates the branch (guarded), and the branch strip + commit
+  rail read live `git_store`. Worktree isolation (F10.2b) is still v1.
+- **ExitPlanMode seam (open):** the agent's ACP ExitPlanMode ↔ `plan_launch` reconciliation is
+  skill-driven (like the thread-id seam); deeper ACP wiring is later.
+- **Lease enforcement (still deferred):** the lease is *set* on launch; the PreToolUse gate only
+  checks `status == executing` — leaseholder-only editing + stale-lease reclaim wait on ACP session
+  context in the hook (unchanged through M6c/M7).
 - **No UI task-advance:** with no live agent, nothing moves a task to `in_progress` (agent-driven
   via `task_update`) — a demo/testing limitation, not a gap.
 
@@ -152,10 +172,13 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 (cargo via rustup; `cmake` is in `~/.local`; full Xcode's `metal` compiler is required for
 `gpui_macos`). Fast loops: `cargo build -p plan_ui` (~seconds), `cargo test -p plan_core -p
 plan_server`. A full `cargo build -p zed` is only needed for `crates/zed/**` changes and before
-a visual check. The feature is gated behind `ZED_PLAN`; run with `ZED_PLAN=1 cargo run -p zed
--- .` (a throwaway `.plans/led-212.plan.json` test plan is present; a single-plan fallback
-shows it). **Do NOT commit** the pre-existing `.rules` / `.claude/` changes — not part of this
-work.
+a visual check. Enable with `"plan".enabled: true` in settings **or** `ZED_PLAN=1 cargo run -p zed
+-- .` (a throwaway `.plans/led-212.plan.json` test plan is present + a `.plans/policy.json`; a
+single-plan fallback shows it. The local test plan has demo `git.pr` + a ticket `drift` set for
+visual checks — reset them if you want the non-PR / non-drift states). **Do NOT commit** the
+untracked/pre-existing working-tree changes that aren't your work: `.rules`, `.claude/`, `.plans/`
+(local dogfood data — untracked, never committed), and `crates/plan_server/LICENSE-GPL`. Stage
+explicit paths per commit.
 
 ### Decisions to honor
 - The MCP server is **Rust** (`rmcp`) reusing `plan_core` — one source of truth, no
@@ -164,8 +187,14 @@ work.
 - **Thread-following keys on the ACP session id** (`active_agent_thread().session_id()`), not
   `agent_ui`'s UUID `ThreadId`. Known seam: the agent must stamp `plan.thread` with the session
   id for true per-thread binding (a single-plan fallback covers it meanwhile).
-- All colors via `cx.theme()`. Feature flag is the `ZED_PLAN` env var (the durable `"plan"`
-  setting is M9).
+- All colors via `cx.theme()`. The feature enables on the **`"plan".enabled` setting OR the
+  `ZED_PLAN` env var** (M9 added the durable setting; env stays for dev/CI). Registration is
+  startup-once — toggling `enabled` takes effect on the next launch.
+- **`plan_ui` only reads git** (`project::git_store`); it never mutates git. A UI action that needs
+  a git mutation (revert, resync) **routes through the agent**, never UI-shells git nor adds
+  upstream git surface.
+- **`PlanPanel::activation_priority` is `100`** — must stay unique across all panels (the dock
+  panics otherwise on re-home); upstream uses 0–7.
 
 ### Deferred backlog (recorded, non-blocking)
 Thread-id seam · fidelity pass (motion/pulses, mono fonts, read-only mini-buffers / text-range
