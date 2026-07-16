@@ -453,11 +453,18 @@ impl PlanView {
                     .color(Color::Placeholder),
             )
             // Ticket header chips (F2.4b) — none in ticketless plans (compliance §7).
-            .children(
-                plan.tickets
-                    .iter()
-                    .map(|ticket| crate::mono_chip_ticket(format!("⛓ {}", ticket.key), cx.theme().colors().text_accent, cx)),
-            )
+            .children(plan.tickets.iter().map(|ticket| {
+                crate::peek_chip(
+                    SharedString::from(format!("peek-ticket-header-{}", ticket.key)),
+                    crate::mono_chip_ticket(
+                        format!("⛓ {}", ticket.key),
+                        cx.theme().colors().text_accent,
+                        cx,
+                    ),
+                    ticket_peek(ticket),
+                    cx,
+                )
+            }))
             .child(
                 h_flex()
                     .gap_0p5()
@@ -1658,7 +1665,21 @@ impl PlanView {
                             .color(Color::Placeholder),
                     )
                     .when_some(hunk.from.clone(), |row, from| {
-                        row.child(crate::mono_chip(format!("from {from}"), status.info, cx))
+                        let chip = crate::mono_chip(format!("from {from}"), status.info, cx);
+                        let peek = self
+                            .plan
+                            .as_ref()
+                            .and_then(|plan| anchor::block_text(plan, &from));
+                        row.child(match peek {
+                            Some(text) => crate::peek_chip(
+                                SharedString::from(format!("peek-hunk-from-{}", hunk.id)),
+                                chip,
+                                SharedString::from(text),
+                                cx,
+                            )
+                            .into_any_element(),
+                            None => chip.into_any_element(),
+                        })
                     })
                     .child(div().flex_1())
                     .child(controls),
@@ -1724,6 +1745,28 @@ impl PlanView {
                 format!("{} ↪ {block}{code}", comment.id)
             })
         });
+        // Peek text (F0.5b): the anchored block's current text, prefixed when the
+        // anchor is no longer clean. Outdated resolves against the original block;
+        // Moved resolves against the block the quote was found in; Detached (or an
+        // unresolvable block) has no text to peek, so the chip carries no card.
+        let anchor_peek =
+            comment
+                .anchor
+                .as_ref()
+                .zip(self.plan.as_ref())
+                .and_then(|(anchor, plan)| {
+                    let block = anchor.block.as_deref()?;
+                    match anchor::reanchor(anchor, plan) {
+                        anchor::ReanchorResult::Anchored => {
+                            anchor::block_text(plan, block).map(SharedString::from)
+                        }
+                        anchor::ReanchorResult::Outdated => anchor::block_text(plan, block)
+                            .map(|text| SharedString::from(format!("outdated — {text}"))),
+                        anchor::ReanchorResult::Moved { block } => anchor::block_text(plan, &block)
+                            .map(|text| SharedString::from(format!("moved — {text}"))),
+                        anchor::ReanchorResult::Detached => None,
+                    }
+                });
         let comment_id = comment.id.clone();
         let colors = cx.theme().colors();
         let muted = colors.text_muted;
@@ -1740,7 +1783,17 @@ impl PlanView {
             .child(chip(state, state_color))
             .when(!is_lint, |row| {
                 row.when_some(anchor_label, |row, anchor_label| {
-                    row.child(crate::mono_chip(anchor_label, muted, cx))
+                    let chip = crate::mono_chip(anchor_label, muted, cx);
+                    row.child(match anchor_peek {
+                        Some(peek) => crate::peek_chip(
+                            SharedString::from(format!("peek-comment-{comment_id}")),
+                            chip,
+                            peek,
+                            cx,
+                        )
+                        .into_any_element(),
+                        None => chip.into_any_element(),
+                    })
                 })
             })
             .when_some(rule_id, |row, rule_id| {
@@ -2479,6 +2532,18 @@ fn coverage_meter(plan: &Plan, ticket_key: &str, cx: &App) -> impl IntoElement {
         )
 }
 
+/// Peek text for a ticket cross-reference chip (F0.5b): key · status, and the AC
+/// list on a second line when present. Resolved from the in-scope [`Ticket`].
+fn ticket_peek(ticket: &Ticket) -> SharedString {
+    let status = ticket.status.as_deref().unwrap_or("—");
+    let mut text = format!("{} · {}", ticket.key, status);
+    if !ticket.ac.is_empty() {
+        text.push('\n');
+        text.push_str(&ticket.ac.join(" · "));
+    }
+    SharedString::from(text)
+}
+
 /// A Spec-lens ticket card (§4/§3.2): key · type/priority/source · status chip ·
 /// coverage meter · sync stamp + ↻. Drift variant + drift card land in M8b-T2.
 fn render_ticket_card(plan: &Plan, ticket: &Ticket, cx: &App) -> impl IntoElement {
@@ -2516,7 +2581,12 @@ fn render_ticket_card(plan: &Plan, ticket: &Ticket, cx: &App) -> impl IntoElemen
             h_flex()
                 .gap_2()
                 .items_center()
-                .child(crate::mono_chip_ticket(format!("⛓ {}", ticket.key), colors.text_accent, cx))
+                .child(crate::peek_chip(
+                    SharedString::from(format!("peek-ticket-card-{}", ticket.key)),
+                    crate::mono_chip_ticket(format!("⛓ {}", ticket.key), colors.text_accent, cx),
+                    ticket_peek(ticket),
+                    cx,
+                ))
                 .when(!meta.is_empty(), |row| {
                     row.child(Label::new(meta).size(LabelSize::XSmall).color(Color::Muted))
                 })

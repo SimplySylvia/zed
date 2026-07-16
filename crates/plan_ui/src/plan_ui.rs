@@ -14,9 +14,9 @@ use acp_thread::{AgentThreadEntry, ToolCallStatus};
 use agent_ui::AgentPanelEvent;
 use anyhow::Result;
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, AsyncWindowContext, Context, Entity, EventEmitter,
-    FocusHandle, Focusable, FontWeight, Hsla, IntoElement, Pixels, Render, SharedString,
-    Subscription, WeakEntity, Window, actions, px, pulsating_between,
+    Animation, AnimationExt, AnyElement, App, AsyncWindowContext, Context, ElementId, Entity,
+    EventEmitter, FocusHandle, Focusable, FontWeight, Hsla, IntoElement, Pixels, Render,
+    SharedString, Subscription, WeakEntity, Window, actions, px, pulsating_between,
 };
 use plan_core::{Plan, Status, Task, TaskStatus, exec, store};
 use settings::Settings;
@@ -742,6 +742,38 @@ fn mono_chip_chassis(
                 .size(LabelSize::XSmall)
                 .color(Color::Custom(color)),
         )
+}
+
+/// Wrap `chip` so hovering it surfaces a small floating "peek card" (F0.5b) of the
+/// referenced target's current text. The `peek` string is resolved at the call site
+/// (where the plan + the reference are in scope) and this closure only displays it.
+/// `id` must be unique per instance — these chips repeat across cards, so a shared
+/// id would make hover ambiguous. Instant (no entrance animation) and reduced-motion
+/// safe (adds no animation). The chip's own visual output is unchanged; the peek is
+/// purely additive (an id'd wrapper + hover tooltip).
+pub(crate) fn peek_chip(
+    id: impl Into<ElementId>,
+    chip: impl IntoElement,
+    peek: SharedString,
+    cx: &App,
+) -> impl IntoElement {
+    let editor_background = cx.theme().colors().editor_background;
+    div()
+        .id(id)
+        .child(chip)
+        .hoverable_tooltip(Tooltip::element(move |_window, _cx| {
+            v_flex()
+                .max_w(px(360.))
+                .p_2()
+                .rounded_md()
+                .bg(editor_background)
+                .child(
+                    Label::new(peek.clone())
+                        .size(LabelSize::Small)
+                        .color(Color::Muted),
+                )
+                .into_any_element()
+        }))
 }
 
 /// Lifecycle states whose status dot / pill pulses ("needs you now" / live —
