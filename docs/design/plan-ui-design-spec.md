@@ -145,6 +145,16 @@ connected by a purple curve branching from the spine. Foot: `▼ base · ↑n ah
 - **Assumption block** [F2.3b]: `A1 · assumed —` + text; tagged blocks list;
   "unconfirmed — will ⚠ at Approve" → "✓ confirmed by …" (success).
 
+### 3.9 Top-of-plan banners [F1.2c]
+A colored one-line callout strip at the very top of the plan body, above `h1.ptitle`, announcing
+the plan's most important current states. Each banner: flex row, 8px radius, 8×12px padding, 12px
+text / 1.5 line-height, a bold lead phrase + detail; border+bg+text take the kind's role — **warn**
+(modified: guard-hold / gate), **err** (deleted: task failed), **ok** (created: complete). Driven
+by the derived display-state, not raw status. Canonical set: "✋ Holding at a guarded step…" ·
+"✕ Task n failed — amendment rev m proposed…" · "◆ Gate at task n — staging evidence attached…" ·
+"✓ Plan complete. n/m acceptance · ticket coverage a/b · PR #n". Informational — actions live in
+the matching card/panel.
+
 ## 4. Plan panel (bottom dock) [F1.3, F4.3, F5.3b]
 Header: status dot + `Plan · <id>` · **sync receipt** mono 9.5px ("agent synced
 rev 4 · just now"; amber when behind) · right actions (contextual: Pause / Record

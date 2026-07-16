@@ -31,6 +31,11 @@ under One Dark). If they disagree, stop and flag.
 - [ ] **G7** Metadata (timestamps, SHAs, rule ids, anchors, sync receipts) is mono,
   9–11px, placeholder/muted. Body text is 12–13px sans.
 - [ ] **G8** Interactive elements have hover (element.hover) and focus-visible states.
+- [ ] **G9** The shared chip chassis (`chip` / `mono_chip`) renders as a **filled, full-radius
+  tinted pill** — `rounded_full`, background = the semantic role color at ~10% opacity, border =
+  the role color — not a bare outline. Exception: the ticket `⛓ KEY` chip uses a 4px radius
+  (mockup `.tkchip2`). *(Added 2026-07-15 — the mockup's chips are tinted pills; §0 previously left
+  chip fill unspecified and the code shipped bare outlines.)*
 
 ## 1. Status pill [F1.4]
 
@@ -148,8 +153,9 @@ under One Dark). If they disagree, stop and flag.
   behind, with "syncs before next task" copy).
 - [ ] Pipeline row tints: active info / failed error / gate+guard amber; right-side
   mono note per state (sha, "running", "✋ guard s3", "GATE").
-- [ ] Live column rows: teal mono verb column (plan/edit/run/guard/hook/ev/drift) +
-  detail; failures red, completions green, live row pulses.
+- [ ] Live column: a **caps section header** (kind-colored, mono, per state) precedes the
+  activity rows; rows carry a teal mono verb column (plan/edit/run/guard/hook/ev/drift) +
+  detail; failures red, completions green, the live row pulses (accent dot, G4).
 - [ ] Contextual header action matches the matrix primary for panel-open states.
 - [ ] Body layout is responsive to the dock: **pipeline + live side-by-side when docked
   bottom** (wide), **stacked vertically when docked left/right** (narrow) — a left/right dock
@@ -193,3 +199,22 @@ under One Dark). If they disagree, stop and flag.
    merge.
 4. **Regression**: when touching a shared element (chassis, chips, checkbox
    vocabulary), re-verify §0 plus every section that consumes it.
+
+## 14. Top-of-plan banners [F1.2c]
+
+*(Added 2026-07-15 — this component exists in the e2e mockup (a colored one-line callout strip at
+the very top of the plan body, above `h1.ptitle`) but was previously undocumented in the contract
+and design spec. Numbered §14 after the §13 protocol, which keeps its number for back-references.)*
+
+- [ ] A banner strip renders at the top of the plan body, above the title, driven by the derived
+  display-state (not raw `Status`). Each banner: flex row, 8px radius, 8×12px padding, 12px text,
+  a bold `<b>` lead phrase + detail.
+- [ ] Banner kind → color follows §0/§1 roles: **warn** (modified — guard-hold / gate),
+  **err** (deleted — task failed), **ok** (created/success — plan complete). Border + bg + text
+  all take the kind's role.
+- [ ] The four canonical banners match the mockup copy pattern: guard-hold ("✋ Holding at a
+  guarded step…"), task-failed ("✕ Task n failed — amendment rev m proposed…"), gate
+  ("◆ Gate at task n — staging evidence attached…"), complete ("✓ Plan complete. n/m acceptance ·
+  ticket coverage a/b · PR #n").
+- [ ] Banners are informational; any action they reference is reached via the matching card/panel
+  (no new action surface introduced by the banner itself).
