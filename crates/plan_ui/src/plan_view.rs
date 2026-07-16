@@ -486,11 +486,18 @@ impl PlanView {
             .bg(colors.editor_background)
             .border_1()
             .border_color(colors.border)
+            .gap_1()
             .child(
-                Label::new(format!("⎇ {branch} ← {base}"))
+                Label::new(format!("⎇ {branch}"))
                     .buffer_font(cx)
                     .size(LabelSize::XSmall)
                     .color(Color::Muted),
+            )
+            .child(
+                Label::new(format!("← {base}"))
+                    .buffer_font(cx)
+                    .size(LabelSize::XSmall)
+                    .color(Color::Placeholder),
             );
 
         let behind_color = if facts.behind > 0 { modified } else { placeholder };
@@ -520,16 +527,25 @@ impl PlanView {
             );
 
         Some(
-            h_flex()
-                .gap_3()
+            div()
                 .px_3()
                 .pb_1()
-                .items_center()
-                .child(branch_chip)
-                .child(ahead_behind)
-                .child(dirty_dot)
-                .child(div().flex_1())
-                .children(pr_chip(plan, "open-pr-strip", cx))
+                .child(
+                    h_flex()
+                        .gap_3()
+                        .px_2()
+                        .py_1()
+                        .items_center()
+                        .bg(colors.panel_background)
+                        .border_1()
+                        .border_color(colors.border_variant)
+                        .rounded_lg()
+                        .child(branch_chip)
+                        .child(ahead_behind)
+                        .child(dirty_dot)
+                        .child(div().flex_1())
+                        .children(pr_chip(plan, "open-pr-strip", cx)),
+                )
                 .into_any_element(),
         )
     }
@@ -678,10 +694,16 @@ impl PlanView {
                     ),
             )
             .child(
-                Label::new(format!("{base} · ↑{ahead} ahead"))
+                Label::new(format!("{base} ·"))
                     .buffer_font(cx)
                     .size(LabelSize::XSmall)
                     .color(Color::Placeholder),
+            )
+            .child(
+                Label::new(format!("↑{ahead} ahead"))
+                    .buffer_font(cx)
+                    .size(LabelSize::XSmall)
+                    .color(Color::Custom(cx.theme().status().created)),
             )
             .children(pr_chip(plan, "open-pr-foot", cx))
     }
