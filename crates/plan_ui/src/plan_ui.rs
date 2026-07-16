@@ -344,6 +344,23 @@ impl PlanPanel {
         }
     }
 
+    /// Coarse jump-to for an attention-queue row (F5.7): open/focus the Plan tab
+    /// and point it at the item's lens.
+    fn jump_to_lens(
+        &mut self,
+        lens: plan_view::Lens,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(workspace) = self.workspace.upgrade() else {
+            return;
+        };
+        let view = workspace.update(cx, |workspace, cx| {
+            plan_view::PlanView::open_tab(workspace, window, cx)
+        });
+        view.update(cx, |view, cx| view.set_lens(lens, cx));
+    }
+
     fn render_plan(&self, plan: &Plan, cx: &mut Context<Self>) -> impl IntoElement {
         let border = cx.theme().colors().border_variant;
         // Left/right docks are narrow ("mobile") — stack the pipeline + live columns
@@ -444,9 +461,88 @@ impl PlanPanel {
                             ),
                     ),
             )
+            // Attention queue (F5.7 "NEEDS YOU"): full-width above the body in both
+            // layouts, only when something needs the user.
+            .children(self.render_attention_queue(plan, cx))
             // Body (§4): pipeline + live activity — side-by-side when docked bottom,
             // stacked when docked left/right (narrow).
             .child(body)
+    }
+
+    /// The "NEEDS YOU" attention queue (F5.7 / contract §10): one compact,
+    /// clickable row per [`crate::attention_items`] entry, each doing a coarse
+    /// jump into the Plan tab at the item's lens. `None` when nothing needs the
+    /// user, so the section is omitted entirely.
+    fn render_attention_queue(
+        &self,
+        plan: &Plan,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement> {
+        let items = crate::attention_items(plan);
+        if items.is_empty() {
+            return None;
+        }
+        let status = cx.theme().status();
+        let modified = status.modified;
+        let deleted = status.deleted;
+        let element_hover = cx.theme().colors().element_hover;
+        let border = cx.theme().colors().border_variant;
+
+        let rows = items.into_iter().enumerate().map(|(index, item)| {
+            let (glyph, color) = attention_glyph(item.kind, modified, deleted);
+            let lens = item.lens;
+            h_flex()
+                .id(("attention-row", index))
+                .gap_2()
+                .items_center()
+                .px_1()
+                .py_0p5()
+                .rounded_sm()
+                .cursor_pointer()
+                .hover(move |style| style.bg(element_hover))
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(color)
+                        .child(SharedString::from(glyph)),
+                )
+                .child(Label::new(item.label).size(LabelSize::Small))
+                .on_click(
+                    cx.listener(move |this, _, window, cx| this.jump_to_lens(lens, window, cx)),
+                )
+        });
+
+        Some(
+            v_flex()
+                .px_3()
+                .py_2()
+                .border_b_1()
+                .border_color(border)
+                .child(
+                    div()
+                        .pb_1()
+                        .text_size(px(9.5))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(modified)
+                        .child("NEEDS YOU"),
+                )
+                .children(rows),
+        )
+    }
+}
+
+/// The kind glyph and role color for an attention-queue row (F5.7). Colors resolve
+/// through the theme's `status()` palette per the UI compliance spec.
+fn attention_glyph(kind: AttentionKind, modified: Hsla, deleted: Hsla) -> (&'static str, Hsla) {
+    match kind {
+        AttentionKind::Question => ("?", modified),
+        AttentionKind::Blocker => ("⚑", deleted),
+        AttentionKind::Lint => ("⚠", modified),
+        AttentionKind::Guard => ("✋", modified),
+        AttentionKind::Gate => ("◆", modified),
+        AttentionKind::Failed => ("✕", deleted),
+        AttentionKind::Drift => ("⛓", modified),
+        AttentionKind::RevBehind => ("⟳", modified),
     }
 }
 
@@ -999,9 +1095,6 @@ pub(crate) fn display_state(plan: &Plan) -> DisplayState {
 
 /// A kind of thing that can need the user in the active plan (F5.7 attention
 /// queue). Ordered as the PRD's needs-you cycle enumerates them.
-// Consumed by the queue rendering in C2; until then the enumeration is exercised
-// only by its unit tests.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AttentionKind {
     Question,
@@ -1015,8 +1108,7 @@ pub(crate) enum AttentionKind {
 }
 
 /// One row of the attention queue (F5.7): what needs the user, a short human
-/// label, and the lens the row jumps to when actioned. Rendering is C2.
-#[allow(dead_code)]
+/// label, and the lens the row jumps to when actioned.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AttentionItem {
     pub kind: AttentionKind,
@@ -1029,7 +1121,6 @@ pub(crate) struct AttentionItem {
 /// signals (questions, blockers, lint findings, drift, rev-behind) each collapse
 /// to one counted item; holding guards and failed tasks yield one item apiece.
 /// Reuses the existing predicates rather than re-deriving the filters.
-#[allow(dead_code)]
 pub(crate) fn attention_items(plan: &Plan) -> Vec<AttentionItem> {
     use plan_view::Lens;
 
@@ -1154,7 +1245,6 @@ pub(crate) fn attention_items(plan: &Plan) -> Vec<AttentionItem> {
 }
 
 /// `"1 noun"` / `"{count} nouns"` for the aggregate attention labels.
-#[allow(dead_code)]
 fn pluralize(count: usize, noun: &str) -> String {
     if count == 1 {
         format!("1 {noun}")

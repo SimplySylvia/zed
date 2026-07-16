@@ -81,15 +81,20 @@ impl PlanView {
         Self::open_tab(workspace, window, cx);
     }
 
-    /// Open (or re-activate) the singleton Plan tab in the active pane. Reused by
-    /// the `OpenPlan` action and the panel's "Open as tab" button (F1.3).
-    pub fn open_tab(workspace: &mut Workspace, window: &mut Window, cx: &mut Context<Workspace>) {
+    /// Open (or re-activate) the singleton Plan tab in the active pane, returning
+    /// its handle. Reused by the `OpenPlan` action, the panel's "Open as tab"
+    /// button, and the panel attention queue's jump-to (F1.3 / F5.7).
+    pub fn open_tab(
+        workspace: &mut Workspace,
+        window: &mut Window,
+        cx: &mut Context<Workspace>,
+    ) -> Entity<Self> {
         // Singleton: reuse the existing tab if present, else open one. Bind the
         // lookup to a local first so its borrow of `workspace`/`cx` is released.
         let existing = workspace.items_of_type::<Self>(cx).next();
         if let Some(existing) = existing {
             workspace.activate_item(&existing, true, true, window, cx);
-            return;
+            return existing;
         }
         let plans_dir = following::plans_dir(workspace, cx);
         let handle = cx.entity().downgrade();
@@ -104,7 +109,15 @@ impl PlanView {
             _git_subscription: None,
             _watch_task: None,
         });
-        workspace.add_item_to_active_pane(Box::new(view), None, true, window, cx);
+        workspace.add_item_to_active_pane(Box::new(view.clone()), None, true, window, cx);
+        view
+    }
+
+    /// Point the tab at a lens (F5.7 attention-queue jump-to). Mirrors the
+    /// lens-switcher's in-place lens set.
+    pub(crate) fn set_lens(&mut self, lens: Lens, cx: &mut Context<Self>) {
+        self.lens = lens;
+        cx.notify();
     }
 
     /// Subscribe to the agent panel's active-thread changes and retarget now.
