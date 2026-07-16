@@ -13652,6 +13652,7 @@ dependencies = [
  "acp_thread",
  "agent_ui",
  "anyhow",
+ "git_ui",
  "gpui",
  "plan_core",
  "project",
