@@ -15,8 +15,8 @@ use agent_ui::AgentPanelEvent;
 use anyhow::Result;
 use gpui::{
     Animation, AnimationExt, AnyElement, App, AsyncWindowContext, Context, Entity, EventEmitter,
-    FocusHandle, Focusable, Hsla, IntoElement, Pixels, Render, SharedString, Subscription,
-    WeakEntity, Window, actions, px, pulsating_between,
+    FocusHandle, Focusable, FontWeight, Hsla, IntoElement, Pixels, Render, SharedString,
+    Subscription, WeakEntity, Window, actions, px, pulsating_between,
 };
 use plan_core::{Plan, Status, Task, TaskStatus, exec, store};
 use settings::Settings;
@@ -358,11 +358,23 @@ impl PlanPanel {
             .px_3()
             .py_2()
             .child(panel_pipeline(plan, cx));
+        // Caps section header (§4): the plan's uppercase caps state, tinted by role.
+        let state = crate::display_state(plan);
+        let role = state.role().color(cx);
         let activity = v_flex()
             .flex_1()
             .min_h_0()
             .px_3()
             .py_2()
+            .child(
+                div()
+                    .pb_1()
+                    .mb_1()
+                    .text_size(px(9.5))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(role)
+                    .child(SharedString::from(state.caps_label())),
+            )
             .child(panel_activity(&self.activity, cx));
         let body = if stacked {
             v_flex()
@@ -461,7 +473,7 @@ impl Render for PlanPanel {
 /// One row of the live activity column, kept theme-agnostic (color at render).
 #[derive(Clone, PartialEq)]
 struct ActivityRow {
-    verb: String,
+    verb: &'static str,
     detail: String,
     kind: ActivityKind,
 }
@@ -474,8 +486,24 @@ enum ActivityKind {
     Other,
 }
 
-/// Map a thread entry to an activity row (tool calls only). The verb column is the
-/// tool kind (edit/execute/read/…); the detail is the tool name (§4 live column).
+/// Curated verb column (§10) for an ACP tool kind, keyed on the protocol's own
+/// canonical snake_case name (from `ToolKind`'s `serde(rename_all = "snake_case")`)
+/// rather than its `Debug` impl. The §10 lifecycle verbs (guard/hook/ev/drift/plan)
+/// are not derivable from the tool-call feed, so they're intentionally absent here.
+fn tool_verb(name: &str) -> &'static str {
+    match name {
+        "read" | "search" => "read",
+        "edit" | "delete" | "move" => "edit",
+        "execute" => "run",
+        "think" => "plan",
+        "fetch" => "fetch",
+        _ => "tool",
+    }
+}
+
+/// Map a thread entry to an activity row (tool calls only). The verb column is a
+/// curated verb for the tool kind (edit/run/read/…); the detail is the tool name
+/// (§4 live column).
 fn activity_row(entry: &AgentThreadEntry) -> Option<ActivityRow> {
     let AgentThreadEntry::ToolCall(call) = entry else {
         return None;
@@ -486,7 +514,12 @@ fn activity_row(entry: &AgentThreadEntry) -> Option<ActivityRow> {
         ToolCallStatus::InProgress => ActivityKind::Running,
         _ => ActivityKind::Other,
     };
-    let verb = format!("{:?}", call.kind).to_lowercase();
+    // Serialize the ACP `ToolKind` to its canonical snake_case name and map that to a
+    // curated verb; fall back to "tool" if serialization ever fails to yield a string.
+    let verb = serde_json::to_value(call.kind)
+        .ok()
+        .and_then(|value| value.as_str().map(tool_verb))
+        .unwrap_or("tool");
     let detail = call
         .tool_name
         .as_ref()
@@ -575,18 +608,31 @@ fn panel_activity(rows: &[ActivityRow], cx: &App) -> impl IntoElement {
         .and_then(|style| style.color)
         .unwrap_or(cx.theme().colors().text_accent);
     v_flex().gap_0p5().children(rows.iter().map(move |row| {
+        let running = row.kind == ActivityKind::Running;
         let color = match row.kind {
             ActivityKind::Done => Color::Created,
             ActivityKind::Failed => Color::Error,
-            ActivityKind::Running => Color::Default,
+            // Live rows read as accent (the pulsing dot picks up the same tint).
+            ActivityKind::Running => Color::Accent,
             ActivityKind::Other => Color::Custom(verb_color),
+        };
+        // Fixed-width leading slot: the pulsing accent dot marks the live row; other
+        // rows leave the slot empty so the verb column stays aligned across rows.
+        let lead: AnyElement = if running {
+            crate::pulse(
+                Indicator::dot().color(Color::Accent).into_any_element(),
+                "plan-live-dot",
+            )
+        } else {
+            div().into_any_element()
         };
         h_flex()
             .gap_2()
+            .child(div().w(px(8.)).flex_none().child(lead))
             .child(
                 div()
                     .min_w(px(34.))
-                    .child(Label::new(row.verb.clone()).buffer_font(cx).size(LabelSize::XSmall).color(color)),
+                    .child(Label::new(row.verb).buffer_font(cx).size(LabelSize::XSmall).color(color)),
             )
             .child(
                 Label::new(row.detail.clone())
