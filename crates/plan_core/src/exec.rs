@@ -318,6 +318,20 @@ pub fn amendment_count(plan: &Plan, task: &str) -> usize {
         .count()
 }
 
+/// The rev of the latest amendment proposed against `task`, if any.
+/// Outer `Some` = an amendment exists; inner = its recorded rev.
+pub fn latest_amendment_rev(plan: &Plan, task: &str) -> Option<Option<u32>> {
+    let summary = format!("amendment proposed for {task}");
+    plan.history
+        .iter()
+        .rev()
+        .find(|entry| {
+            entry.kind.as_deref() == Some("amendment")
+                && entry.summary.as_deref() == Some(summary.as_str())
+        })
+        .map(|entry| entry.rev)
+}
+
 /// Two amendments on one task raises the escalation card (F11.4).
 pub fn needs_escalation(plan: &Plan, task: &str) -> bool {
     amendment_count(plan, task) >= 2

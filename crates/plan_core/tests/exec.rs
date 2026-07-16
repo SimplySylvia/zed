@@ -243,6 +243,26 @@ fn failure_ladder_escalates_at_two_amendments() {
 }
 
 #[test]
+fn latest_amendment_rev_reports_the_recorded_rev() {
+    let mut plan = executing_with_lease();
+    assert_eq!(exec::latest_amendment_rev(&plan, "t1"), None);
+    exec::propose_amendment(
+        &mut plan,
+        "t1",
+        vec![HunkSpec {
+            target: Some("t1".into()),
+            old: None,
+            new: Some("x".into()),
+            from: None,
+        }],
+    )
+    .unwrap();
+    assert_eq!(exec::latest_amendment_rev(&plan, "t1"), Some(Some(plan.rev)));
+    // A task with no amendment history has none.
+    assert_eq!(exec::latest_amendment_rev(&plan, "t2"), None);
+}
+
+#[test]
 fn recover_task_choices_set_the_right_state() {
     let mut plan = executing_with_lease();
     exec::mark_interrupted(&mut plan, "t1").unwrap();

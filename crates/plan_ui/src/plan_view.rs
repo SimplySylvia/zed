@@ -772,6 +772,14 @@ impl PlanView {
             })
             .unwrap_or_default();
 
+        // Amendment tag (§7 / F11.4): outer `Some` means an amendment was proposed
+        // against this task; the inner `Option<u32>` is the rev of the latest such
+        // history entry, appended as `· rev {n}` when present.
+        let amendment_rev = self
+            .plan
+            .as_ref()
+            .and_then(|plan| exec::latest_amendment_rev(plan, &task.id));
+
         let block = task.id.clone();
         let quote = task.title.clone().unwrap_or_default();
 
@@ -806,7 +814,8 @@ impl PlanView {
                     } else {
                         Label::new(title).into_any_element()
                     })
-                    // Chips right-aligned (mockup): ticket · system · guard · sha · tests.
+                    // Chips right-aligned (§7): ticket · system · GATE · guard · sha
+                    // (+diffstat) · tests · amendment.
                     .child(div().flex_1())
                     .when_some(task.ticket.clone(), |row, ticket| {
                         row.child(crate::mono_chip_ticket(ticket, colors.text_accent, cx))
@@ -814,18 +823,25 @@ impl PlanView {
                     .when_some(task.system.clone(), |row, system| {
                         row.child(chip(system.to_uppercase(), system_color(Some(&system), cx)))
                     })
+                    .when(task.gate, |row| {
+                        row.child(chip("GATE", system_color(Some("gate"), cx)))
+                    })
                     .when(guarded > 0, |row| {
                         row.child(chip(format!("⛨ {guarded} guarded"), status.modified))
                     })
                     .when_some(task.artifacts.sha.clone(), |row, sha| {
-                        row.child(crate::mono_chip(
-                            format!("⌥ {}", sha.chars().take(7).collect::<String>()),
-                            status.created,
-                            cx,
-                        ))
+                        row.child(sha_chip(&sha, task.artifacts.diffstat.as_deref(), cx))
                     })
-                    .when(task.artifacts.tests.is_some(), |row| {
-                        row.child(chip("✓ tests", status.created))
+                    .when_some(task.artifacts.tests.as_ref(), |row, tests| {
+                        let (label, failed) = tests_chip_label(tests);
+                        row.child(chip(label, if failed { status.deleted } else { status.created }))
+                    })
+                    .when_some(amendment_rev, |row, rev| {
+                        let label = match rev {
+                            Some(rev) => format!("◆ amendment · rev {rev}"),
+                            None => "◆ amendment".to_string(),
+                        };
+                        row.child(chip(label, syntax_color(cx, "keyword")))
                     })
                     .child(
                         Button::new(SharedString::from(format!("flag-{block}")), "⚑").on_click(
@@ -1892,6 +1908,78 @@ fn chip(text: impl Into<SharedString>, color: Hsla) -> impl IntoElement {
         .child(text.into())
 }
 
+/// The task-card SHA chip (§7 / design-spec §3.5): the short SHA prefixed with the
+/// `⌥` glyph in the accent color, followed by the optional `diffstat` (e.g. `+42 -6`)
+/// with additions tinted `created` and deletions `deleted`, all kept inside one mono
+/// pill. ASCII `-` deletions are rendered with the `−` minus glyph. If `diffstat` is
+/// `None`, only the SHA is shown.
+fn sha_chip(sha: &str, diffstat: Option<&str>, cx: &App) -> impl IntoElement {
+    let colors = cx.theme().colors();
+    let status = cx.theme().status();
+    let short: String = sha.chars().take(7).collect();
+    let mut pill = h_flex()
+        .gap_1()
+        .px_1p5()
+        .rounded_full()
+        .border_1()
+        .border_color(colors.text_accent)
+        .bg(colors.text_accent.opacity(0.1))
+        .child(
+            Label::new(format!("⌥ {short}"))
+                .buffer_font(cx)
+                .size(LabelSize::XSmall)
+                .color(Color::Custom(colors.text_accent)),
+        );
+    if let Some(diffstat) = diffstat {
+        for token in diffstat.split_whitespace() {
+            let color = if token.starts_with('+') {
+                status.created
+            } else if token.starts_with('-') || token.starts_with('−') {
+                status.deleted
+            } else {
+                colors.text_muted
+            };
+            pill = pill.child(
+                Label::new(token.replacen('-', "−", 1))
+                    .buffer_font(cx)
+                    .size(LabelSize::XSmall)
+                    .color(Color::Custom(color)),
+            );
+        }
+    }
+    pill
+}
+
+/// Derive the task-card tests chip (§7) from the freeform `artifacts.tests` value,
+/// returning `(label, failed)`:
+/// - number `N` → `("✓ N tests", false)`
+/// - bool `true` → `("✓ tests", false)`; `false` → `("✕ tests", true)`
+/// - object with numeric `failed`/`passed`: `failed > 0` → `("✕ {failed} tests", true)`,
+///   otherwise `("✓ {passed} tests", false)` (or `"✓ tests"` when no `passed`)
+/// - string `s` → `("✓ {s}", false)`
+/// - anything else → `("✓ tests", false)`
+fn tests_chip_label(tests: &serde_json::Value) -> (String, bool) {
+    use serde_json::Value;
+    match tests {
+        Value::Number(count) => (format!("✓ {count} tests"), false),
+        Value::Bool(true) => ("✓ tests".to_string(), false),
+        Value::Bool(false) => ("✕ tests".to_string(), true),
+        Value::Object(map) => {
+            let failed = map.get("failed").and_then(Value::as_i64);
+            let passed = map.get("passed").and_then(Value::as_i64);
+            match failed {
+                Some(failed) if failed > 0 => (format!("✕ {failed} tests"), true),
+                _ => match passed {
+                    Some(passed) => (format!("✓ {passed} tests"), false),
+                    None => ("✓ tests".to_string(), false),
+                },
+            }
+        }
+        Value::String(summary) => (format!("✓ {summary}"), false),
+        _ => ("✓ tests".to_string(), false),
+    }
+}
+
 /// The default lens for a status (F12.1: `auto` follows status).
 fn default_lens(status: &Status) -> Lens {
     match status {
@@ -2305,6 +2393,33 @@ mod tests {
 
     fn plan(value: serde_json::Value) -> Plan {
         serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn tests_chip_label_covers_each_arm() {
+        use serde_json::json;
+        // number
+        assert_eq!(tests_chip_label(&json!(12)), ("✓ 12 tests".to_string(), false));
+        // bool true / false
+        assert_eq!(tests_chip_label(&json!(true)), ("✓ tests".to_string(), false));
+        assert_eq!(tests_chip_label(&json!(false)), ("✕ tests".to_string(), true));
+        // object with failures
+        assert_eq!(
+            tests_chip_label(&json!({ "failed": 3, "passed": 9 })),
+            ("✕ 3 tests".to_string(), true)
+        );
+        // object all passing
+        assert_eq!(
+            tests_chip_label(&json!({ "failed": 0, "passed": 9 })),
+            ("✓ 9 tests".to_string(), false)
+        );
+        // string
+        assert_eq!(
+            tests_chip_label(&json!("all green")),
+            ("✓ all green".to_string(), false)
+        );
+        // fallback
+        assert_eq!(tests_chip_label(&json!(null)), ("✓ tests".to_string(), false));
     }
 
     #[test]

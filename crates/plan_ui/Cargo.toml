@@ -18,9 +18,7 @@ anyhow.workspace = true
 gpui.workspace = true
 plan_core.workspace = true
 project.workspace = true
+serde_json.workspace = true
 settings.workspace = true
 ui.workspace = true
 workspace.workspace = true
-
-[dev-dependencies]
-serde_json.workspace = true
