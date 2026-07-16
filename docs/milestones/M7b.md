@@ -1,8 +1,15 @@
 # M7b · Git — branch strip + commit rail UI — milestone note
 
-**Status:** code COMPLETE; **§13 visual verification awaiting the developer** (One Dark). `plan_ui`
-tests + clippy green; full `zed` build green. This is the review checkpoint — run it and confirm
-the strip + rail before M7 (and M7b) is marked done.
+**Status:** COMPLETE — **§13 visual verification confirmed by the developer (2026-07-15)** under
+One Dark: branch strip, commit rail (nodes/pulse/sha/foot), and the GitHub PR button all verified.
+`plan_ui` tests + clippy green; full `zed` build green. **This closes M7 (git).**
+
+### Post-review fixes (verified with M7b)
+- **PR slot** — dropped the `PR —` placeholder; the slot is empty until a PR exists, then renders a
+  purple **GitHub-icon button** (`PR #n`) that `open_url`s the PR (strip + rail foot). Design docs
+  updated (compliance §5/§8, PRD §3.3/§3.6).
+- **Rail foot alignment** — the spine now ends at the last node; the `▼` terminus is centered under
+  the spine (in the 22px gutter column) with base/ahead lining up under the task titles.
 
 **Feature IDs:** F10.2 (branch strip §5/§3.3), F10.3 (commit rail SHAs + foot §8/§3.6), F1.3
 (dirty/state chrome). **revert-task-commit omitted by decision** (below).
@@ -62,7 +69,7 @@ accessor added; no upstream files touched — `FORK_DIFF.md` unchanged.**
 - [~] Revert-task-commit — **omitted by decision** (agent-routed if built later).
 - [x] `plan_ui` tests + clippy green; full `zed` build green; `docs/milestones/M7b.md`; FORK_DIFF
       unchanged.
-- [ ] **§13 visual verification under One Dark — developer gate (pending).**
+- [x] **§13 visual verification under One Dark — confirmed by the developer (2026-07-15).**
 
 ## Next (after §13 confirms): M7 complete → M8 (tickets) · M9 (settings + hardening).
 Deferred into the v1 tail: worktree isolation (F10.2b), PR generation + live PR chip (F10.4),

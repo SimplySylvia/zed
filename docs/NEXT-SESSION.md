@@ -3,8 +3,8 @@
 **How to use:** point a fresh agent at this file (or paste the brief below). It's the kickoff
 for continuing the **Plan** feature. Kept current at the end of each session.
 
-_Last updated: after M6c (2026-07-15) — M6 execution complete (+ a plan_ui demo-fidelity pass).
-On branch `plan`._
+_Last updated: after M7 (2026-07-15) — git complete (7a branch/commit core + enforcement · 7b
+branch strip + commit rail UI). On branch `plan`._
 
 ---
 
@@ -14,36 +14,43 @@ You're continuing the "Plan" feature in a personal Zed fork (Rust + GPUI). All w
 `plan` branch. **Read first, in order:** your project memory (auto-loaded: `plan-fork-project`
 + `zed-build-environment` + **`no-coauthor-trailer`**); then `docs/PRD.md` (Part 0 context,
 **Part III working agreement — it governs HOW you work**, Part II build plan + milestones, and
-for the next section Part I §9 + Appendix B (git F10.x + policy) and Part IV §3.2/§3.3 (branch
-strip + commit rail)); then the milestone notes `docs/milestones/M0.md … M6c.md`; then
+for the next section Part I §4 + Appendix A `tickets[]` (M8 tickets) and Part IV §3.2 ticket
+card)); then the milestone notes `docs/milestones/M0.md … M7b.md`; then
 `docs/zed-notes.md` (Zed internals findings, spike results, deferred backlog — study #7 = git
 state via `project::git_store`, git_ui hunk reuse). Confirm you've read Part III + the milestone
 notes before proposing anything.
 
-**Current section: M7 (Git) is next — see "Next up" below. Start by writing the M7 plan for
+**Current section: M8 (Tickets) is next — see "Next up" below. Start by writing the M8 plan for
 sign-off; no code until approved.** Never add a `Co-Authored-By` trailer to commits (see the
 Working agreement).
 
 ### Status
-M0–M4, **all of M5 (5a comments · 5b staged revisions · 5c lint)**, and **all of M6 (6a launch ·
-6b gates/guards · 6c amendments/failure-ladder/control)** are **complete and visually verified**.
-A broad `plan_ui` **demo-fidelity pass** is in too (card chassis, sechead + WHEN/SHALL acceptance
-+ preview blocks, task-card checkbox/spinner + chip placement + per-task timeline, continuous
+M0–M4, **all of M5 (5a comments · 5b staged revisions · 5c lint)**, **all of M6 (6a launch ·
+6b gates/guards · 6c amendments/failure-ladder/control)**, and **all of M7 (7a git core +
+enforcement · 7b branch strip + commit rail)** are **complete and visually verified**. A broad
+`plan_ui` **demo-fidelity pass** is in too (card chassis, sechead + WHEN/SHALL acceptance +
+preview blocks, task-card checkbox/spinner + chip placement + per-task timeline, continuous
 commit rail, panel borders + contextual actions, pill states, first-launch fix). Crates:
-- `plan_core` — schema / store / validate / **anchor** / **comments** / **rev** / **lint** /
-  **exec** (launch + lease + guard/gate lifecycle + `GuardPolicy` + pause/resume/stop + amendments
-  + failure ladder + recovery).
+- `plan_core` — schema / store / validate / **anchor** / **comments** / **rev** / **lint**
+  (incl. **git-commit-format**) / **exec** (launch + lease + guard/gate lifecycle + `GuardPolicy`
+  + pause/resume/stop + amendments + failure ladder + recovery) / **git** (policy + branch/base/
+  trailer/commit-format/launch-guard/destructive helpers, pure).
 - `plan_server` — Rust `rmcp` MCP server + Claude Code hooks; reuses `plan_core`. Tools: review +
-  `plan_propose_revision` + `plan_lint` + `plan_launch` + guard/gate
+  `plan_propose_revision` + `plan_lint` + `plan_launch` (now branch-guarded, stamps branch) +
+  `plan_set_branch` + `plan_record_commit` + guard/gate
   (`plan_hold_guard`/`plan_clear_guard`/`plan_approve_gate`) + control
   (`plan_pause`/`plan_resume`/`plan_stop`/`plan_propose_amendment`/`plan_recover_task`);
-  **PreToolUse gate** (no-plan-edit + guard/gate holds + `require_on`) + **Stop loop guard**.
+  **PreToolUse gate** (no-plan-edit + guard/gate holds + `require_on` + **commit-format/trailer +
+  destructive-op block**) + **Stop loop guard**; `plan_server::git` shells `git` (dirty/behind).
 - `plan_ui` — Plan tab (lenses, cards, task cards w/ commit rail + timeline, review UI, launch +
-  guards + amendments + escalation + recovery + pause/resume/stop) + status pill + dock panel.
-- `plan-agent/` — planning skill (lifecycle + per-task loop + enforcement) + hooks + settings.
+  guards + amendments + escalation + recovery + pause/resume/stop, **branch strip + commit rail
+  from live `git_store` + GitHub PR button**) + status pill + dock panel.
+- `plan-agent/` — planning skill (lifecycle + per-task loop + enforcement + **branch/commit git
+  protocol**) + hooks + settings.
 
-Upstream footprint is only the M0 registration lines + the M4 pill line — all tracked in
-`FORK_DIFF.md`.
+Upstream footprint is still only the M0 registration lines + the M4 pill line — all tracked in
+`FORK_DIFF.md` (M7 added **no** upstream touch; git state is read via already-`pub`
+`project::git_store`).
 
 ### Working agreement (PRD Part III — follow it)
 One milestone at a time. Before coding, write a short plan
@@ -60,19 +67,33 @@ docs are silent/contradictory. All `plan_ui` work is governed by the `plan-ui-de
 (PRD §14); flag v1 pulls instead of building them.
 
 ### Next up
-M5 + M6 are done. Next major section:
-- **M7 — Git.** Branch on launch + guards for dirty tree/stale base (F10.2); commit-per-task +
-  the `Plan: {ticket} rev{rev} task-{task}` trailer via the skill + a **commit-time hook** check
-  (F10.1/F10.3); the **branch strip** (`⎇ branch ← base · ↑n ↓n · PR chip`) + **commit rail SHAs**
-  reading real repo state (zed-notes study #7 — `project::git_store` is observable);
-  `destructive_ops: amendment_only` (F10.5c); revert-task-commit. Also pick up the deferred
-  **lease enforcement/reclaim** (F11.3b) and wire the **git-format lint rules** into
-  `plan_core::lint` (M5c left them as recorded no-ops). Launch (M6a) currently launches in the
-  current tree — M7 adds the branch.
-- Then **M8** tickets (incl. `ticket-coverage` lint) · **M9** settings + hardening.
+M5 + M6 + M7 are done. Next major section:
+- **M8 — Tickets.** `tickets[]` via the agent's Jira MCP (the skill orchestrates; the plan-server
+  just stores), ticket cards + coverage meter (F2.4b/f), the **`ticket-coverage` lint** (currently
+  a recorded no-op in `plan_core::lint`), drift snapshot/resync at the F2.4g checkpoints,
+  task↔ticket commit prefixes (F2.4c — the M7 trailer/format helpers already key on `task.ticket`),
+  ticketless fallbacks (F2.4d — `plan_core::git` already has ticketless branch/trailer/format).
+- Then **M9** settings + hardening (`"plan"` settings key + settings page — see zed-notes study #8:
+  touches ~3 upstream files, not purely additive; the §12 failure drills).
 
-**Start by writing the M7 plan for the user's sign-off — no code until approved.** M7 likely
-splits (branch/commit core · branch-strip + commit-rail UI · collision/drift rails).
+**Start by writing the M8 plan for the user's sign-off — no code until approved.** M8 likely splits
+(ticket store/fetch + cards · coverage + `ticket-coverage` lint · drift/resync + write-back — note
+write-back F2.4e is v1).
+
+### M7 deferrals to honor (recorded in M7a/M7b notes)
+- **revert-task-commit** — omitted by decision: a future UI revert **routes through the agent**
+  (it runs `git revert`), never `plan_ui` shelling git or upstream git additions. No `git revert`-
+  a-commit API exists in the git surface.
+- **Lease enforcement/reclaim (F11.3b)** — still deferred (the PreToolUse hook can't identify the
+  acting ACP session id); unchanged since M6c.
+- **`require_tests_green`** — enforced by the **skill**, not the commit hook (the hook sees the
+  command, not the result). The commit hook enforces format/trailer + destructive-op block.
+- **base feature-vs-hotfix** — `base_for` always uses the feature base (no plan-`type` signal yet).
+- **Live-evidence diff view (F4.6d, v1)** — click a task/sha → git diff in a read-only mini-buffer
+  (`load_commit(sha)` + `create_editor_diff`, both ready). Developer asked; kept in the **v1 tail**
+  (not MVP). Diffstat popover vs full mini-buffer TBD when pulled.
+- **Amendment rail node** — a purple **square**, not a 45°-rotated diamond + branch curve (GPUI
+  rotates only svg/img). **PR chip** links to a recorded `git.pr.url`; PR *population* is v1/F10.4.
 
 ### M6 deferrals to honor (recorded in M6a/M6b/M6c notes)
 - **Lease enforcement + reclaim** (F11.3b) — lease is set on launch but the hook only checks

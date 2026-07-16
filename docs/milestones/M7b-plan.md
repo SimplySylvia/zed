@@ -6,9 +6,9 @@
 > protocol per component** under One Dark. GPUI views get smoke coverage; the visual check is
 > the developer's gate. TDD applies to any pure helper (e.g. dirty-label mapping).
 
-**Status:** COMPLETE pending §13 (2026-07-15). T1–T3 built + verified (tests/clippy/build green);
-**T4 revert-task-commit omitted by decision** (see below); T5 note written; **§13 visual check
-awaiting the developer**. Second and final slice of M7.
+**Status:** COMPLETE — **§13 confirmed by the developer (2026-07-15)**. T1–T3 built + verified
+(tests/clippy/build green); **T4 revert-task-commit omitted by decision** (see below); T5 note
+written. Closes M7. Second and final slice of M7.
 
 > **T4 decision (developer, 2026-07-15):** revert is naturally the **agent's** job — a future
 > "revert task commit" UI action would *kick off the agent* to run `git revert`, never shell git
