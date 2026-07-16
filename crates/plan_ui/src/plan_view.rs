@@ -994,6 +994,8 @@ impl PlanView {
     /// run / ✋ Record & continue. The ✋ free-text field is deferred (fidelity).
     fn guard_controls(&self, task: &Task, cx: &Context<Self>) -> Vec<AnyElement> {
         let modified = cx.theme().status().modified;
+        let editor_background = cx.theme().colors().editor_background;
+        let border = cx.theme().colors().border_variant;
         task.steps
             .iter()
             .filter(|step| {
@@ -1003,28 +1005,88 @@ impl PlanView {
                 let guard = step.guard.as_ref()?;
                 let is_input = guard.guard_type.as_deref() == Some("input");
                 let prompt = guard.prompt.clone().unwrap_or_default();
-                let label = if is_input {
-                    "✋ Record & continue"
-                } else {
-                    "⛨ Approve to run"
-                };
                 let task_id = task.id.clone();
                 let step_id = step.id.clone();
-                let button_id = SharedString::from(format!("clear-guard-{task_id}-{step_id}"));
-                Some(
-                    v_flex()
-                        .ml_4()
-                        .gap_1()
-                        .p_2()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(modified)
-                        .child(Label::new(prompt).size(LabelSize::Small))
-                        .child(primary_button(button_id, label).on_click(cx.listener(
-                            move |this, _, _window, cx| this.clear_step_guard(&task_id, &step_id, cx),
-                        )))
-                        .into_any_element(),
-                )
+                let chassis = v_flex()
+                    .ml_4()
+                    .gap_1()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(modified);
+                if is_input {
+                    // §3.5 input-guard evidence-capture surface.
+                    let mut caps = "RECORD VERIFICATION — REQUIRED TO CONTINUE".to_string();
+                    if !guard.evidence_for.is_empty() {
+                        caps.push_str(&format!(
+                            " · STORED AS EVIDENCE ON {}",
+                            guard.evidence_for.join(", ")
+                        ));
+                    }
+                    let record_id = SharedString::from(format!("clear-guard-{task_id}-{step_id}"));
+                    let pause_id = SharedString::from(format!("pause-guard-{task_id}-{step_id}"));
+                    Some(
+                        chassis
+                            .child(
+                                div()
+                                    .text_size(px(9.5))
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(modified)
+                                    .child(SharedString::from(caps)),
+                            )
+                            .child(Label::new(prompt).size(LabelSize::Small))
+                            // input-field chrome only — live text capture via an editor entity
+                            // is deferred (F4.5b wiring).
+                            .child(
+                                div()
+                                    .w_full()
+                                    .min_h(px(28.))
+                                    .px_2()
+                                    .py_1()
+                                    .rounded_md()
+                                    .bg(editor_background)
+                                    .border_1()
+                                    .border_color(border)
+                                    .child(
+                                        Label::new("type your verification…")
+                                            .color(Color::Placeholder)
+                                            .size(LabelSize::Small),
+                                    ),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(
+                                        primary_button(record_id, "Record & continue ⏎").on_click(
+                                            cx.listener(move |this, _, _window, cx| {
+                                                this.clear_step_guard(&task_id, &step_id, cx)
+                                            }),
+                                        ),
+                                    )
+                                    .child(Button::new(pause_id, "Pause — I'll verify later").on_click(
+                                        cx.listener(|this, _, _window, cx| this.pause_plan(cx)),
+                                    )),
+                            )
+                            .child(
+                                Label::new("the hook blocks the agent until it's recorded")
+                                    .size(LabelSize::Small)
+                                    .color(Color::Muted),
+                            )
+                            .into_any_element(),
+                    )
+                } else {
+                    let button_id = SharedString::from(format!("clear-guard-{task_id}-{step_id}"));
+                    Some(
+                        chassis
+                            .child(Label::new(prompt).size(LabelSize::Small))
+                            .child(primary_button(button_id, "⛨ Approve to run").on_click(
+                                cx.listener(move |this, _, _window, cx| {
+                                    this.clear_step_guard(&task_id, &step_id, cx)
+                                }),
+                            ))
+                            .into_any_element(),
+                    )
+                }
             })
             .collect()
     }
