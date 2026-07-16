@@ -37,11 +37,12 @@ tests + clippy green; full `zed` build green. This closes MVP tickets (write-bac
 - **PR/peek-on-hover** for ticket chips (F0.5b) is v1 — not built.
 
 **§13 protocol (developer, under One Dark):** with a ticketed plan (the local `.plans/led-212`
-fixture is 4/4 covered) — (1) the header shows `⛓ LED-212`; (2) the Spec lens shows a ticket card
-with type/status + a coverage meter (all segments `created`, "ticket AC 4/4 covered"); (3) set a
-ticket's `drift` (e.g. via `plan_resync_ticket` with a changed AC) → the card border turns amber,
-the changed segment reads amber, and a drift card shows old→new; (4) a ticketless plan shows no
-chips/cards.
+maps 2 of 4 → a partial-coverage demo; the test fixture is 4/4) — (1) the header shows `⛓ LED-212`;
+(2) the Spec lens shows a ticket card with type/status chip + a coverage meter ("ticket AC 2/4
+covered", 2 filled + 2 empty segments); (3) the local plan has `drift` pre-set → the card border is
+amber, mapped segments read amber (needs-update), and a **drift card** shows the status + AC
+old→new; clear `tickets[0].drift` to `null` to see the non-drift state; (4) a ticketless plan shows
+no chips/cards.
 
 ## Fork discipline
 Additive — `plan_ui` rendering + a pure `plan_core::tickets` enrichment (`AcChange`, drift
