@@ -11,6 +11,7 @@ use crate::following;
 use agent_ui::{AgentPanel, AgentPanelEvent};
 use anyhow::Result;
 use project::Project;
+use project::git_store::GitStoreEvent;
 use gpui::{
     AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, Hsla, Div,
     IntoElement, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window,
@@ -59,6 +60,9 @@ pub struct PlanView {
     plan: Option<Plan>,
     lens: Lens,
     _agent_subscription: Option<Subscription>,
+    /// Live git state (branch strip + rail foot, F10.2/F10.3): re-renders on
+    /// `GitStore` events. `None` until bound in `added_to_workspace`.
+    _git_subscription: Option<Subscription>,
     _watch_task: Option<gpui::Task<()>>,
 }
 
@@ -93,6 +97,7 @@ impl PlanView {
             plan: None,
             lens: Lens::Tasks,
             _agent_subscription: None,
+            _git_subscription: None,
             _watch_task: None,
         });
         workspace.add_item_to_active_pane(Box::new(view), None, true, window, cx);
@@ -194,6 +199,13 @@ impl Item for PlanView {
             Some(agent_panel) => self.subscribe_agent_panel(agent_panel, cx),
             None => self.reload(cx),
         }
+        // Live git state for the branch strip + rail foot (F10.2/F10.3): re-render
+        // on any GitStore event (active-repo switch, status/head/branch change).
+        let git_store = workspace.project().read(cx).git_store().clone();
+        self._git_subscription = Some(cx.subscribe(
+            &git_store,
+            |_view, _store, _event: &GitStoreEvent, cx| cx.notify(),
+        ));
         self._watch_task = Some(cx.spawn(async move |view, cx| {
             loop {
                 cx.background_executor()
@@ -283,6 +295,7 @@ impl SerializableItem for PlanView {
                     plan: None,
                     lens: Lens::Tasks,
                     _agent_subscription: None,
+                    _git_subscription: None,
                     _watch_task: None,
                 })
             })
@@ -369,6 +382,125 @@ impl PlanView {
             .child(self.render_primary(plan, blockers, cx))
     }
 
+    /// Whether the branch strip + commit rail show — from Launch onward (§5/§8).
+    fn shows_git(status: &Status) -> bool {
+        matches!(
+            status,
+            Status::Executing | Status::Paused | Status::Gate | Status::Amending
+        )
+    }
+
+    /// Live git state for the branch strip + rail foot (F10.2). `None` when there
+    /// is no workspace or active repository — the strip then simply doesn't render.
+    fn git_facts(&self, plan: &Plan, cx: &App) -> Option<GitFacts> {
+        let workspace = self.workspace.upgrade()?;
+        let repository = workspace.read(cx).project().read(cx).active_repository(cx)?;
+        let repository = repository.read(cx);
+        let branch = repository
+            .branch
+            .as_ref()
+            .map(|branch| branch.name().to_string());
+        let (ahead, behind) = repository
+            .branch
+            .as_ref()
+            .and_then(|branch| branch.tracking_status())
+            .map(|status| (status.ahead, status.behind))
+            .unwrap_or((0, 0));
+        // Dirty = any changed path outside `.plans/` (the plan file is git-versioned
+        // and rewritten at launch, so its churn must not read as a dirty tree —
+        // mirrors the M7a launch guard).
+        let dirty = repository
+            .status()
+            .any(|entry| !entry.repo_path.as_unix_str().starts_with(".plans/"));
+        let base = plan
+            .git
+            .as_ref()
+            .and_then(|git| git.base.clone())
+            .or_else(|| Some(plan_core::git::base_for(plan, &plan_core::git::GitPolicy::default())));
+        Some(GitFacts {
+            branch,
+            base,
+            ahead,
+            behind,
+            dirty,
+        })
+    }
+
+    /// The branch strip (compliance §5 / design-spec §3.3): `⎇ branch ← base`,
+    /// `↑n ↓n` (behind>0 amber = drift), a dirty dot + label, and a `PR —`
+    /// placeholder. Rendered only from Launch onward.
+    fn render_branch_strip(&self, plan: &Plan, cx: &Context<Self>) -> Option<AnyElement> {
+        if !Self::shows_git(&plan.status) {
+            return None;
+        }
+        let facts = self.git_facts(plan, cx)?;
+        let colors = cx.theme().colors();
+        let created = cx.theme().status().created;
+        let modified = cx.theme().status().modified;
+        let placeholder = cx.theme().colors().text_placeholder;
+        let branch = facts.branch.unwrap_or_else(|| "—".to_string());
+        let base = facts.base.unwrap_or_else(|| "—".to_string());
+
+        let branch_chip = h_flex()
+            .px_1p5()
+            .py_0p5()
+            .rounded_md()
+            .bg(colors.editor_background)
+            .border_1()
+            .border_color(colors.border)
+            .child(
+                Label::new(format!("⎇ {branch} ← {base}"))
+                    .buffer_font(cx)
+                    .size(LabelSize::XSmall)
+                    .color(Color::Muted),
+            );
+
+        let behind_color = if facts.behind > 0 { modified } else { placeholder };
+        let ahead_behind = h_flex()
+            .gap_1()
+            .child(
+                Label::new(format!("↑{}", facts.ahead))
+                    .buffer_font(cx)
+                    .size(LabelSize::XSmall)
+                    .color(Color::Custom(created)),
+            )
+            .child(
+                Label::new(format!("↓{}", facts.behind))
+                    .buffer_font(cx)
+                    .size(LabelSize::XSmall)
+                    .color(Color::Custom(behind_color)),
+            );
+
+        let dirty = dirty_label(plan, facts.dirty);
+        let dirty_dot = h_flex()
+            .gap_1()
+            .child(Indicator::dot().color(Color::Custom(dirty.color(cx))))
+            .child(
+                Label::new(dirty.text())
+                    .size(LabelSize::XSmall)
+                    .color(Color::Muted),
+            );
+
+        Some(
+            h_flex()
+                .gap_3()
+                .px_3()
+                .pb_1()
+                .items_center()
+                .child(branch_chip)
+                .child(ahead_behind)
+                .child(dirty_dot)
+                .child(div().flex_1())
+                .child(
+                    Label::new("PR —")
+                        .buffer_font(cx)
+                        .size(LabelSize::XSmall)
+                        .color(Color::Placeholder),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// The state-driven primary action (design-spec §9 matrix). In 5b: `Apply all`
     /// while a revision is staged; `Approve` in review states (disabled with a G5
     /// tooltip while blockers are open). Launch/Pause/gate primaries are M6.
@@ -438,10 +570,7 @@ impl PlanView {
     /// The task list, with the commit rail (§9.1) from launch onward: one
     /// continuous spine drawn behind per-task node gutters.
     fn render_task_list(&self, plan: &Plan, cx: &Context<Self>) -> AnyElement {
-        let show_rail = matches!(
-            plan.status,
-            Status::Executing | Status::Paused | Status::Gate | Status::Amending
-        );
+        let show_rail = Self::shows_git(&plan.status);
         let rows: Vec<AnyElement> = plan
             .tasks
             .iter()
@@ -449,10 +578,11 @@ impl PlanView {
             .map(|(index, task)| {
                 let card = self.render_task_card(index, task, cx);
                 if show_rail {
+                    let is_amendment = plan_core::exec::amendment_count(plan, &task.id) > 0;
                     h_flex()
                         .items_start()
                         .gap_2()
-                        .child(rail_gutter(task, cx))
+                        .child(rail_gutter(task, is_amendment, cx))
                         .child(div().flex_1().child(card))
                         .into_any_element()
                 } else {
@@ -475,11 +605,39 @@ impl PlanView {
                         .w(px(2.))
                         .bg(cx.theme().colors().border),
                 )
-                .child(list)
+                .child(v_flex().child(list).child(self.render_rail_foot(plan, cx)))
                 .into_any_element()
         } else {
             list.into_any_element()
         }
+    }
+
+    /// The commit-rail foot (§8): base marker + ahead count + PR placeholder,
+    /// aligned under the spine. PR chip is a placeholder until F10.4 (v1).
+    fn render_rail_foot(&self, plan: &Plan, cx: &Context<Self>) -> impl IntoElement {
+        let facts = self.git_facts(plan, cx);
+        let base = facts
+            .as_ref()
+            .and_then(|facts| facts.base.clone())
+            .unwrap_or_else(|| "—".to_string());
+        let ahead = facts.as_ref().map(|facts| facts.ahead).unwrap_or(0);
+        h_flex()
+            .gap_2()
+            .pt_2()
+            .pl(px(2.))
+            .items_center()
+            .child(
+                Label::new(format!("▼ {base} · ↑{ahead} ahead"))
+                    .buffer_font(cx)
+                    .size(LabelSize::XSmall)
+                    .color(Color::Placeholder),
+            )
+            .child(
+                Label::new("⑂ PR —")
+                    .buffer_font(cx)
+                    .size(LabelSize::XSmall)
+                    .color(Color::Placeholder),
+            )
     }
 
     /// Task card (compliance §7 / design-spec §3.5) with a flag affordance and its
@@ -1235,19 +1393,24 @@ fn render_checkbox(task: &Task, cx: &App) -> AnyElement {
 /// A commit-rail gutter (§9.1): a fixed-width left column holding just the status
 /// node, aligned to the task-card header. The continuous spine is drawn once,
 /// behind these gutters, by [`PlanView::render_tasks`].
-fn rail_gutter(task: &Task, cx: &App) -> impl IntoElement {
+fn rail_gutter(task: &Task, is_amendment: bool, cx: &App) -> impl IntoElement {
     v_flex()
         .w(px(22.))
         .flex_none()
         .items_center()
         .pt_2()
-        .child(rail_node(task, cx))
+        .child(rail_node(task, is_amendment, cx))
 }
 
-/// A commit-rail node colored by task state (§8): hollow pending · accent
-/// running · success done · error failed · amber gate. Every node has a fill so it
-/// masks the spine passing behind it.
-fn rail_node(task: &Task, cx: &App) -> AnyElement {
+/// A commit-rail node by task state (§8): hollow pending · accent-pulse in
+/// progress · success committed · error failed · amber-hollow gate · purple square
+/// amendment. Every node has a fill so it masks the spine passing behind it.
+///
+/// §13 deviation (recorded): the amendment marker is a purple **square** rather
+/// than a 45°-rotated diamond with a branch curve — GPUI rotates only svg/img, not
+/// divs, so the exact glyph + connecting curve are a fidelity deferral. The purple
+/// square still reads as the amendment identity.
+fn rail_node(task: &Task, is_amendment: bool, cx: &App) -> AnyElement {
     let colors = cx.theme().colors();
     let status = cx.theme().status();
     let editor = colors.editor_background;
@@ -1260,11 +1423,23 @@ fn rail_node(task: &Task, cx: &App) -> AnyElement {
             .border_color(border)
             .bg(fill)
     };
+    if is_amendment {
+        let purple = syntax_color(cx, "keyword");
+        return h_flex()
+            .size(px(11.))
+            .flex_none()
+            .border_1()
+            .border_color(purple)
+            .bg(purple)
+            .into_any_element();
+    }
     if task.gate && task.status == TaskStatus::Pending {
         return circle(status.modified, editor).into_any_element();
     }
     match task.status {
-        TaskStatus::InProgress => circle(colors.text_accent, colors.text_accent).into_any_element(),
+        TaskStatus::InProgress => {
+            crate::pulse(circle(colors.text_accent, colors.text_accent), "rail-node-running")
+        }
         TaskStatus::Done => circle(status.created, status.created).into_any_element(),
         TaskStatus::Failed => circle(status.deleted, status.deleted).into_any_element(),
         _ => circle(colors.border, editor).into_any_element(),
@@ -1377,6 +1552,54 @@ fn open_blocker_count(plan: &Plan) -> usize {
 /// Approve is enabled only at zero open blockers (F3.6).
 fn approve_enabled(plan: &Plan) -> bool {
     open_blocker_count(plan) == 0
+}
+
+/// Live git state for the branch strip + rail foot (read from `git_store`, not
+/// persisted — the durable `plan.git` carries branch/base/commits only).
+struct GitFacts {
+    branch: Option<String>,
+    base: Option<String>,
+    ahead: u32,
+    behind: u32,
+    dirty: bool,
+}
+
+/// The branch strip's dirty-dot state (compliance §5): a failed task dominates,
+/// then an executing+dirty tree reads as the agent editing, else clean.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirtyState {
+    Clean,
+    AgentEditing,
+    TaskFailed,
+}
+
+fn dirty_label(plan: &Plan, dirty: bool) -> DirtyState {
+    if plan.tasks.iter().any(|task| task.status == TaskStatus::Failed) {
+        DirtyState::TaskFailed
+    } else if plan.status == Status::Executing && dirty {
+        DirtyState::AgentEditing
+    } else {
+        DirtyState::Clean
+    }
+}
+
+impl DirtyState {
+    fn text(self) -> &'static str {
+        match self {
+            DirtyState::Clean => "clean",
+            DirtyState::AgentEditing => "agent editing",
+            DirtyState::TaskFailed => "task failed",
+        }
+    }
+
+    /// Status color role (§5): clean=created · editing=modified · failed=deleted.
+    fn color(self, cx: &App) -> Hsla {
+        match self {
+            DirtyState::Clean => cx.theme().status().created,
+            DirtyState::AgentEditing => cx.theme().status().modified,
+            DirtyState::TaskFailed => cx.theme().status().deleted,
+        }
+    }
 }
 
 /// The shared card chassis (compliance §6 / demo `.card`): 8px radius, panel bg,
@@ -1658,6 +1881,7 @@ impl Render for PlanView {
             Some(plan) => v_flex()
                 .size_full()
                 .child(self.render_header(plan, cx))
+                .children(self.render_branch_strip(plan, cx))
                 .children(self.render_escalation(plan, cx))
                 .children(self.render_gate_hold(plan, cx))
                 .children(self.render_staged_revision(plan, cx))
@@ -1727,5 +1951,26 @@ mod tests {
             "thread": "a", "spec": { "goal": "g" }
         }));
         assert!(approve_enabled(&plan));
+    }
+
+    #[test]
+    fn dirty_label_reflects_failure_then_execution_then_clean() {
+        // A failed task wins regardless of the dirty flag.
+        let failed = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "executing", "rev": 1,
+            "thread": "a", "spec": { "goal": "g" },
+            "tasks": [{ "id": "t1", "status": "failed" }]
+        }));
+        assert_eq!(dirty_label(&failed, false), DirtyState::TaskFailed);
+
+        // Executing + dirty tree → the agent is editing.
+        let editing = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "executing", "rev": 1,
+            "thread": "a", "spec": { "goal": "g" }, "tasks": [{ "id": "t1", "status": "in_progress" }]
+        }));
+        assert_eq!(dirty_label(&editing, true), DirtyState::AgentEditing);
+
+        // Executing but clean tree → clean.
+        assert_eq!(dirty_label(&editing, false), DirtyState::Clean);
     }
 }
