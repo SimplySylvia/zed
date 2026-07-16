@@ -390,7 +390,7 @@ impl PlanView {
             )
             .when(blockers > 0, |header| {
                 header.child(chip(
-                    format!("⚑ {blockers} blocker{}", if blockers == 1 { "" } else { "s" }),
+                    format!("⚑ {blockers} blocker"),
                     deleted,
                 ))
             })
@@ -1395,7 +1395,21 @@ impl PlanView {
         let resolvable =
             comment.severity.as_deref() == Some("blocker") && state != "resolved" && !is_lint;
         let rule_id = if is_lint { lint_rule_id(comment) } else { None };
-        let block = comment.anchor.as_ref().and_then(|anchor| anchor.block.clone());
+        // Mono anchor label `id ↪ target`, plus `+ file:line` when code-anchored
+        // (compliance §9).
+        let anchor_label = comment.anchor.as_ref().and_then(|anchor| {
+            anchor.block.as_ref().map(|block| {
+                let code = anchor
+                    .code_refs
+                    .first()
+                    .map(|code_ref| match code_ref.line {
+                        Some(line) => format!(" + {}:{}", code_ref.path, line),
+                        None => format!(" + {}", code_ref.path),
+                    })
+                    .unwrap_or_default();
+                format!("{} ↪ {block}{code}", comment.id)
+            })
+        });
         let comment_id = comment.id.clone();
         let muted = cx.theme().colors().text_muted;
         let state_color = comment_state_color(&state).color(cx);
@@ -1407,8 +1421,8 @@ impl PlanView {
             .child(Label::new(text).size(LabelSize::Small))
             .child(chip(state, state_color))
             .when(!is_lint, |row| {
-                row.when_some(block, |row, block| {
-                    row.child(crate::mono_chip(format!("{comment_id} ↪ {block}"), muted, cx))
+                row.when_some(anchor_label, |row, anchor_label| {
+                    row.child(crate::mono_chip(anchor_label, muted, cx))
                 })
             })
             .when_some(rule_id, |row, rule_id| {
@@ -1640,6 +1654,8 @@ fn comment_state_color(state: &str) -> Color {
     match state {
         "resolved" => Color::Created,
         "addressed" => Color::Info,
+        // Pushback is a live disagreement — red, not the neutral fallback (compliance §9).
+        "pushback" => Color::Error,
         "open" | "sent" | "reopened" => Color::Modified,
         _ => Color::Muted,
     }
