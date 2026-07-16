@@ -848,8 +848,11 @@ impl PlanView {
                 plan.comments
                     .iter()
                     .filter(|comment| {
+                        // Lint findings render in the dedicated lint card
+                        // ([`PlanView::render_lint_card`]), not inline here.
                         comment.anchor.as_ref().and_then(|a| a.block.as_deref())
                             == Some(task.id.as_str())
+                            && comment.author.as_deref() != Some(plan_core::lint::LINT_AUTHOR)
                     })
                     .map(|comment| {
                         let outdated = comment.anchor.as_ref().is_some_and(|a| {
@@ -1509,6 +1512,67 @@ impl PlanView {
             .children(pending.hunks.iter().map(|hunk| self.render_hunk(hunk, cx)))
             .into_any_element(),
         )
+    }
+
+    /// Policy-lint findings card (compliance §6 / design-spec §3.4): a dedicated
+    /// warn-band card listing every `plan-lint`-authored finding. These findings
+    /// are filtered out of the inline per-task comment rows (see
+    /// [`PlanView::render_task_card`]) so they render here only, not twice.
+    ///
+    /// Deferred: plan.json carries no reliable "lint ran with 0 findings" signal,
+    /// so we cannot render a "passed n/n" success card — the absence of findings
+    /// simply renders nothing (`None`).
+    fn render_lint_card(&self, plan: &Plan, cx: &Context<Self>) -> Option<AnyElement> {
+        let lint_comments: Vec<&Comment> = plan
+            .comments
+            .iter()
+            .filter(|comment| comment.author.as_deref() == Some(plan_core::lint::LINT_AUTHOR))
+            .collect();
+        if lint_comments.is_empty() {
+            return None;
+        }
+        let status = cx.theme().status();
+        let count = lint_comments.len();
+        // Warn band: the card renders only when findings exist (compliance §6).
+        let card = card_shell(
+            "⚙ PLAN LINT",
+            status.modified,
+            status.modified_background,
+            Some(format!("{count} finding(s)").into()),
+            None,
+            cx,
+        );
+        let rows = lint_comments.into_iter().map(|comment| {
+            let (glyph, glyph_color) = if comment.severity.as_deref() == Some("blocker") {
+                ("⚑", status.deleted)
+            } else {
+                ("⚠", status.modified)
+            };
+            let finding = comment
+                .thread
+                .first()
+                .and_then(|message| message.text.clone())
+                .unwrap_or_default();
+            // "auto-fixed" maps to the resolved lint state: a finding the linter
+            // reconciled away carries state "resolved", so we dim the row and
+            // append a ✓ auto-fixed pill.
+            let auto_fixed = comment.state.as_deref() == Some("resolved");
+            card_row(cx)
+                .when(auto_fixed, |row| row.opacity(0.5))
+                .child(
+                    Label::new(glyph)
+                        .size(LabelSize::Small)
+                        .color(Color::Custom(glyph_color)),
+                )
+                .child(Label::new(finding).size(LabelSize::Small))
+                .child(div().flex_1())
+                .when_some(lint_rule_id(comment), |row, rule_id| {
+                    row.child(crate::mono_chip(rule_id, status.modified, cx))
+                })
+                .when(auto_fixed, |row| row.child(chip("✓ auto-fixed", status.created)))
+                .into_any_element()
+        });
+        Some(card.children(rows).into_any_element())
     }
 
     /// One staged hunk: target + provenance chip + old (struck, deleted-bg) / new
@@ -2682,6 +2746,7 @@ impl Render for PlanView {
                 .children(self.render_escalation(plan, cx))
                 .children(self.render_gate_hold(plan, cx))
                 .children(self.render_staged_revision(plan, cx))
+                .children(self.render_lint_card(plan, cx))
                 .child(match self.lens {
                     Lens::Tasks => self.render_tasks(plan, cx).into_any_element(),
                     Lens::Spec => render_spec(plan, cx).into_any_element(),
