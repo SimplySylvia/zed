@@ -393,12 +393,17 @@ impl PlanPanel {
                     .border_color(border)
                     .child(status_dot(&plan.status, panel_dot_color(&plan.status), "plan-panel-dot"))
                     .child(Label::new(format!("Plan · {}", plan.id)))
-                    .child(
-                        Label::new(sync_receipt(plan))
+                    .child({
+                        let (receipt, behind) = sync_receipt(plan);
+                        Label::new(receipt)
                             .buffer_font(cx)
                             .size(LabelSize::XSmall)
-                            .color(Color::Placeholder),
-                    )
+                            .color(if behind {
+                                Color::Warning
+                            } else {
+                                Color::Placeholder
+                            })
+                    })
                     .child(div().flex_1())
                     .children(self.panel_actions(plan, cx))
                     .child(
@@ -594,11 +599,38 @@ fn panel_activity(rows: &[ActivityRow], cx: &App) -> impl IntoElement {
 
 
 /// The sync receipt (F5.3b): the plan's rev + latest history timestamp.
-fn sync_receipt(plan: &Plan) -> String {
-    match plan.history.iter().rev().find_map(|entry| entry.at.clone()) {
-        Some(at) => format!("synced rev {} · {}", plan.rev, at),
-        None => format!("synced rev {}", plan.rev),
-    }
+/// The panel header sync receipt (§10). Returns the receipt text and whether the
+/// agent is a rev behind — when the latest agent-authored revision trails the plan's
+/// current rev the caller renders the amber "syncs before next task" variant.
+fn sync_receipt(plan: &Plan) -> (String, bool) {
+    let at = plan.history.iter().rev().find_map(|entry| entry.at.clone());
+    // The rev the executing agent last synced to: its most recent revision entry.
+    let agent_rev = plan
+        .history
+        .iter()
+        .rev()
+        .find(|entry| {
+            entry.by.as_deref() == Some("agent") && entry.kind.as_deref() == Some("revision")
+        })
+        .and_then(|entry| entry.rev);
+    let behind = agent_rev.is_some_and(|rev| rev < plan.rev);
+    let synced_rev = if behind {
+        agent_rev.unwrap_or(plan.rev)
+    } else {
+        plan.rev
+    };
+    let text = match (behind, at) {
+        (true, Some(at)) => format!(
+            "agent synced rev {synced_rev} · {at} — rev {} syncs before next task",
+            plan.rev
+        ),
+        (true, None) => {
+            format!("agent synced rev {synced_rev} — rev {} syncs before next task", plan.rev)
+        }
+        (false, Some(at)) => format!("agent synced rev {synced_rev} · {at}"),
+        (false, None) => format!("agent synced rev {synced_rev}"),
+    };
+    (text, behind)
 }
 
 fn panel_dot_color(status: &Status) -> Color {
@@ -720,6 +752,27 @@ mod tests {
             "history": [{ "kind": "revision", "at": "2026-07-11T09:00:00Z" }]
         }))
         .unwrap();
-        assert_eq!(sync_receipt(&plan), "synced rev 5 · 2026-07-11T09:00:00Z");
+        assert_eq!(
+            sync_receipt(&plan),
+            ("agent synced rev 5 · 2026-07-11T09:00:00Z".to_string(), false)
+        );
+    }
+
+    #[test]
+    fn sync_receipt_flags_the_agent_a_rev_behind() {
+        let plan: Plan = serde_json::from_value(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "executing", "rev": 6,
+            "thread": "a", "spec": { "goal": "g" },
+            "history": [
+                { "by": "agent", "kind": "revision", "rev": 4, "at": "2026-07-11T09:00:00Z" }
+            ]
+        }))
+        .unwrap();
+        let (text, behind) = sync_receipt(&plan);
+        assert!(behind);
+        assert_eq!(
+            text,
+            "agent synced rev 4 · 2026-07-11T09:00:00Z — rev 6 syncs before next task"
+        );
     }
 }
