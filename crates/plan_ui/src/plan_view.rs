@@ -374,7 +374,7 @@ impl PlanView {
             .children(
                 plan.tickets
                     .iter()
-                    .map(|ticket| crate::mono_chip(format!("⛓ {}", ticket.key), cx.theme().colors().text_accent, cx)),
+                    .map(|ticket| crate::mono_chip_ticket(format!("⛓ {}", ticket.key), cx.theme().colors().text_accent, cx)),
             )
             .child(
                 h_flex()
@@ -758,7 +758,7 @@ impl PlanView {
                     // Chips right-aligned (mockup): ticket · system · guard · sha · tests.
                     .child(div().flex_1())
                     .when_some(task.ticket.clone(), |row, ticket| {
-                        row.child(crate::mono_chip(ticket, colors.text_accent, cx))
+                        row.child(crate::mono_chip_ticket(ticket, colors.text_accent, cx))
                     })
                     .when_some(task.system.clone(), |row, system| {
                         row.child(chip(system.to_uppercase(), system_color(Some(&system), cx)))
@@ -1748,11 +1748,13 @@ fn primary_button(id: impl Into<SharedString>, label: impl Into<SharedString>) -
     Button::new(id.into(), label.into()).style(ButtonStyle::Tinted(TintColor::Accent))
 }
 
-/// A small bordered pill whose text inherits the given color.
+/// A small filled, full-radius tinted pill whose text inherits the given color
+/// (compliance G9): `rounded_full`, fill at 10% opacity, border in the role color.
 fn chip(text: impl Into<SharedString>, color: Hsla) -> impl IntoElement {
     div()
-        .px_1()
-        .rounded_sm()
+        .px_1p5()
+        .rounded_full()
+        .bg(color.opacity(0.1))
         .border_1()
         .border_color(color)
         .text_color(color)
@@ -1890,7 +1892,7 @@ fn render_ticket_card(plan: &Plan, ticket: &Ticket, cx: &App) -> impl IntoElemen
             h_flex()
                 .gap_2()
                 .items_center()
-                .child(crate::mono_chip(format!("⛓ {}", ticket.key), colors.text_accent, cx))
+                .child(crate::mono_chip_ticket(format!("⛓ {}", ticket.key), colors.text_accent, cx))
                 .when(!meta.is_empty(), |row| {
                     row.child(Label::new(meta).size(LabelSize::XSmall).color(Color::Muted))
                 })
@@ -2048,7 +2050,7 @@ fn render_spec(plan: &Plan, cx: &App) -> impl IntoElement {
                                         .size(LabelSize::Small),
                                 )
                                 .when_some(acceptance.ticket_ac.clone(), |row, ticket| {
-                                    row.child(crate::mono_chip(ticket, shall_color, cx))
+                                    row.child(crate::mono_chip_ticket(ticket, shall_color, cx))
                                 })
                                 .when_some(evidence, |row, evidence| {
                                     row.child(crate::mono_chip(evidence, colors.text_accent, cx))

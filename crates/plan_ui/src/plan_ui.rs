@@ -627,14 +627,38 @@ fn panel_task_glyph(task: &Task) -> (&'static str, Color) {
 
 // ── Shared visual helpers (compliance §0) ───────────────────────────────────
 
-/// A bordered mono pill for metadata (compliance G7): SHAs, rule ids, anchor
-/// labels, provenance chips. The inner label carries the buffer (mono) font.
+/// A filled, full-radius tinted mono pill for metadata (compliance G7 + G9):
+/// SHAs, rule ids, anchor labels, provenance chips. The inner label carries the
+/// buffer (mono) font; the fill is the role color at 10% opacity.
 pub(crate) fn mono_chip(text: impl Into<SharedString>, color: Hsla, cx: &App) -> impl IntoElement {
+    mono_chip_chassis(text, color, cx, true)
+}
+
+/// The ticket-reference variant of [`mono_chip`] (compliance G9 exception, mockup
+/// `.tkchip2`): a bordered 4px-radius mono chip rather than a full pill. Used for
+/// ticket keys and ticket AC references, some of which carry no `⛓` glyph.
+pub(crate) fn mono_chip_ticket(
+    text: impl Into<SharedString>,
+    color: Hsla,
+    cx: &App,
+) -> impl IntoElement {
+    mono_chip_chassis(text, color, cx, false)
+}
+
+fn mono_chip_chassis(
+    text: impl Into<SharedString>,
+    color: Hsla,
+    cx: &App,
+    pill: bool,
+) -> impl IntoElement {
     div()
-        .px_1()
-        .rounded_sm()
         .border_1()
         .border_color(color)
+        .when_else(
+            pill,
+            |chip| chip.px_1p5().rounded_full().bg(color.opacity(0.1)),
+            |chip| chip.px_1().rounded_sm(),
+        )
         .child(
             Label::new(text)
                 .buffer_font(cx)
