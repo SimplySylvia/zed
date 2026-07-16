@@ -1272,7 +1272,9 @@ impl PlanView {
     /// band + "plan unchanged until applied"; one row per hunk. Rendered as GPUI
     /// chrome for 5b — real editor-diff mini-buffers are a fidelity-pass upgrade.
     /// Gate evidence card (F4.5) when execution holds at a GATE task: header +
-    /// ✓ Approve gate. Compliance §6 card chassis.
+    /// one evidence row per acceptance criterion (claim + mono evidence chips) +
+    /// an actions row (Approve & finish / Re-verify all / Request changes).
+    /// Compliance §6 card chassis.
     /// Failure-ladder escalation card (F11.4): shown when a task has ≥2 amendments.
     /// Offers Take over manually / Retry (guide-me is agent-side, deferred).
     fn render_escalation(&self, plan: &Plan, cx: &Context<Self>) -> Option<AnyElement> {
@@ -1322,21 +1324,90 @@ impl PlanView {
             .unwrap_or_else(|| hold.task.clone())
             .into();
         let task_id = hold.task;
-        Some(
-            card_shell(
-                "GATE — NEEDS SIGN-OFF",
-                status.modified,
-                status.modified_background,
-                Some(title),
-                None,
-                cx,
-            )
-            .child(
+
+        // The evidence being signed off lives on the acceptance criteria; each
+        // criterion carrying ≥1 evidence entry becomes a row. The leading glyph
+        // is green when the criterion is done and no evidence is stale, else
+        // amber. Evidence references render as right-aligned mono chips.
+        let evidence_rows: Vec<AnyElement> = plan
+            .spec
+            .acceptance
+            .iter()
+            .filter(|acceptance| !acceptance.evidence.is_empty())
+            .map(|acceptance| {
+                let any_stale = acceptance.evidence.iter().any(|evidence| evidence.stale);
+                let glyph_color = if acceptance.done && !any_stale {
+                    status.created
+                } else {
+                    status.modified
+                };
+                let claim = acceptance
+                    .shall
+                    .clone()
+                    .or_else(|| acceptance.when.clone())
+                    .unwrap_or_else(|| acceptance.id.clone());
+                card_row(cx)
+                    .child(
+                        Label::new("✓")
+                            .size(LabelSize::Small)
+                            .color(Color::Custom(glyph_color)),
+                    )
+                    .child(Label::new(claim).size(LabelSize::Small))
+                    .child(div().flex_1())
+                    .children(acceptance.evidence.iter().map(|evidence| {
+                        let chip_color = if evidence.stale {
+                            status.modified
+                        } else {
+                            status.created
+                        };
+                        let chip_label = match (
+                            evidence.evidence_type.as_deref(),
+                            evidence.reference.as_deref(),
+                        ) {
+                            (Some(kind), Some(reference)) => format!("{kind} {reference}"),
+                            (None, Some(reference)) => reference.to_string(),
+                            (Some(kind), None) => kind.to_string(),
+                            (None, None) => "evidence".to_string(),
+                        };
+                        crate::mono_chip(chip_label, chip_color, cx)
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+
+        let card = card_shell(
+            "GATE — NEEDS SIGN-OFF",
+            status.modified,
+            status.modified_background,
+            Some(title),
+            None,
+            cx,
+        );
+        let card = if evidence_rows.is_empty() {
+            card.child(
                 card_row(cx).child(
-                    primary_button("approve-gate", "✓ Approve gate").on_click(cx.listener(
-                        move |this, _, _window, cx| this.approve_gate_task(&task_id, cx),
-                    )),
+                    Label::new("no evidence attached yet")
+                        .size(LabelSize::Small)
+                        .color(Color::Muted),
                 ),
+            )
+        } else {
+            card.children(evidence_rows)
+        };
+        Some(
+            card.child(
+                // Approve & finish is the local sign-off action. Re-verify all
+                // and Request changes are agent-routed (contract §6): re-running
+                // evidence checks belongs to the agent, so they render without
+                // on_click handlers (handlers deferred, like revert/resync).
+                card_row(cx)
+                    .child(primary_button("approve-gate", "✓ Approve & finish").on_click(
+                        cx.listener(move |this, _, _window, cx| {
+                            this.approve_gate_task(&task_id, cx)
+                        }),
+                    ))
+                    .child(Button::new("gate-reverify", "Re-verify all"))
+                    .child(Button::new("gate-request-changes", "Request changes")),
             )
             .into_any_element(),
         )
