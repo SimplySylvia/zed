@@ -13,9 +13,9 @@ use anyhow::Result;
 use project::Project;
 use project::git_store::GitStoreEvent;
 use gpui::{
-    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, Hsla, Div,
-    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window,
-    actions, px,
+    AnyElement, AnyView, App, ClickEvent, Context, ElementId, Entity, EventEmitter, FocusHandle,
+    Focusable, FontWeight, Hsla, Div, IntoElement, ParentElement, Render, SharedString, Styled,
+    Subscription, WeakEntity, Window, actions, px,
 };
 use crate::plan_settings::PlanSettings;
 use plan_core::tickets::CoverageState;
@@ -25,7 +25,7 @@ use plan_core::{
     comments, exec, lint, rev, store, tickets,
 };
 use ui::prelude::*;
-use ui::{Button, ButtonStyle, CommonAnimationExt, Indicator, TintColor, Tooltip};
+use ui::{Button, CommonAnimationExt, Indicator, Tooltip};
 use workspace::{
     Workspace,
     item::{Item, ItemEvent, SerializableItem, TabContentParams},
@@ -1742,10 +1742,89 @@ fn card_row(cx: &App) -> Div {
         .border_color(cx.theme().colors().border_variant)
 }
 
-/// An emphasized (accent-tinted) button for a card/toolbar primary action
-/// (design-spec §3.1 `.primary`).
-fn primary_button(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Button {
-    Button::new(id.into(), label.into()).style(ButtonStyle::Tinted(TintColor::Accent))
+/// The card/toolbar primary action (design-spec §3.1 `.primary` = accent fill,
+/// dark text). This is the fidelity-pass-2 "Option A" plan_ui-local CTA: Zed's
+/// `Button`/`ButtonStyle` has no solid accent fill and the theme has no
+/// on-accent text role, so we render a local element instead of a `Button`.
+///
+/// Known caveat: the dark-ink-on-accent treatment (`background` as ink over the
+/// `text_accent` fill) is tuned for the One Dark reference (§13), where the
+/// accent is a light blue. In light themes the accent is saturated and this
+/// low-lightness ink can drop below the ideal contrast; that is a documented
+/// limitation of Option A, not an oversight.
+fn primary_button(id: impl Into<SharedString>, label: impl Into<SharedString>) -> PrimaryButton {
+    PrimaryButton {
+        id: ElementId::from(id.into()),
+        label: label.into(),
+        disabled: false,
+        on_click: None,
+        tooltip: None,
+    }
+}
+
+/// Solid accent-filled primary CTA. Mirrors the subset of GPUI's `Button` API
+/// that the Plan surface uses (`.disabled`, `.on_click`, `.tooltip`) so call
+/// sites read the same as before.
+#[derive(IntoElement)]
+struct PrimaryButton {
+    id: ElementId,
+    label: SharedString,
+    disabled: bool,
+    on_click: Option<Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
+    tooltip: Option<Box<dyn Fn(&mut Window, &mut App) -> AnyView + 'static>>,
+}
+
+impl PrimaryButton {
+    fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_click = Some(Box::new(handler));
+        self
+    }
+
+    fn tooltip(mut self, tooltip: impl Fn(&mut Window, &mut App) -> AnyView + 'static) -> Self {
+        self.tooltip = Some(Box::new(tooltip));
+        self
+    }
+}
+
+impl RenderOnce for PrimaryButton {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // §3.1: accent fill, dark ink, 1px border, ~5px radius.
+        let accent = cx.theme().colors().text_accent;
+        let ink = cx.theme().colors().background;
+        let PrimaryButton {
+            id,
+            label,
+            disabled,
+            on_click,
+            tooltip,
+        } = self;
+
+        h_flex()
+            .id(id)
+            .flex_none()
+            .px_2()
+            .py_0p5()
+            .border_1()
+            .rounded_sm()
+            .border_color(accent)
+            .bg(accent)
+            .child(Label::new(label).size(LabelSize::Small).color(Color::Custom(ink)))
+            // Disabled: dim the whole control via opacity (theme colors unchanged)
+            // while leaving the tooltip attached and hoverable (compliance G5).
+            .when(disabled, |this| this.opacity(0.5).cursor_default())
+            .when(!disabled, |this| {
+                this.cursor_pointer()
+                    // Hover feedback (compliance G8): a subtle accent-fill lift.
+                    .hover(|style| style.bg(accent.opacity(0.9)))
+                    .when_some(on_click, |this, handler| this.on_click(handler))
+            })
+            .when_some(tooltip, |this, tooltip| this.tooltip(tooltip))
+    }
 }
 
 /// A small filled, full-radius tinted pill whose text inherits the given color
