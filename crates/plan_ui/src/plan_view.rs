@@ -1941,13 +1941,18 @@ fn coverage_meter(plan: &Plan, ticket_key: &str, cx: &App) -> impl IntoElement {
         .filter(|state| **state != CoverageState::Unmapped)
         .count();
     let segments = states.into_iter().map(move |state| {
-        let mut segment = div().w(px(22.)).h(px(6.)).rounded_sm();
-        segment = match state {
-            CoverageState::Covered => segment.bg(cx.theme().status().created),
-            CoverageState::NeedsUpdate => segment.bg(cx.theme().status().modified),
-            CoverageState::Unmapped => segment.border_1().border_color(colors.border),
-        };
-        segment
+        let segment = div().w(px(22.)).h(px(6.)).rounded(px(3.)).border_1();
+        match state {
+            CoverageState::Covered => segment
+                .bg(cx.theme().status().created)
+                .border_color(cx.theme().status().created),
+            CoverageState::NeedsUpdate => segment
+                .bg(cx.theme().status().modified)
+                .border_color(cx.theme().status().modified),
+            CoverageState::Unmapped => segment
+                .bg(colors.editor_background)
+                .border_color(colors.border_variant),
+        }
     });
     h_flex()
         .gap_2()
@@ -1990,7 +1995,7 @@ fn render_ticket_card(plan: &Plan, ticket: &Ticket, cx: &App) -> impl IntoElemen
     let card = v_flex()
         .p_2()
         .gap_1()
-        .rounded_md()
+        .rounded_lg()
         .bg(colors.panel_background)
         .border_1()
         .border_color(border)
