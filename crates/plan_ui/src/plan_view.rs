@@ -422,9 +422,17 @@ impl PlanView {
 
     /// Whether the branch strip + commit rail show — from Launch onward (§5/§8).
     fn shows_git(status: &Status) -> bool {
+        // Git chrome (branch strip + commit rail) shows from launch onward — including
+        // Approved (the launch-prompt) and Done (where the strip flips to the live PR
+        // chip and the rail shows the final commit node + PR foot) — per §5/§8.
         matches!(
             status,
-            Status::Executing | Status::Paused | Status::Gate | Status::Amending
+            Status::Approved
+                | Status::Executing
+                | Status::Paused
+                | Status::Gate
+                | Status::Amending
+                | Status::Done
         )
     }
 
@@ -2409,6 +2417,29 @@ mod tests {
 
     fn plan(value: serde_json::Value) -> Plan {
         serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn shows_git_from_launch_through_done() {
+        for status in [
+            Status::Approved,
+            Status::Executing,
+            Status::Paused,
+            Status::Gate,
+            Status::Amending,
+            Status::Done,
+        ] {
+            assert!(
+                PlanView::shows_git(&status),
+                "expected git chrome for {status:?}"
+            );
+        }
+        for status in [Status::Intake, Status::Drafting, Status::InReview] {
+            assert!(
+                !PlanView::shows_git(&status),
+                "expected no git chrome for {status:?}"
+            );
+        }
     }
 
     #[test]
