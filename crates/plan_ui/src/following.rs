@@ -91,7 +91,9 @@ pub fn resolve_plan(plans_dir: &Path, session: Option<&str>) -> Option<Plan> {
         }
     }
     match store::list_plan_ids(plans_dir).as_slice() {
-        [only] => store::load(plans_dir, only).ok(),
+        // Recover from the newest `.bak` if the live file is corrupt (F11.5) — a
+        // designed state rather than a blank tab on an unresolved merge conflict.
+        [only] => store::load_or_recover(plans_dir, only).ok().map(|outcome| outcome.plan),
         _ => None,
     }
 }

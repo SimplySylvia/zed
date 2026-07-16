@@ -30,6 +30,43 @@ fn save_then_load_round_trips() {
 }
 
 #[test]
+fn corrupt_file_recovers_from_newest_backup() {
+    let dir = scratch("recover");
+    let plan = sample();
+    // Two saves → the first revision is backed up.
+    store::save(&dir, &plan).unwrap();
+    let mut next = plan;
+    next.rev += 1;
+    store::save(&dir, &next).unwrap();
+
+    // Corrupt the live file (e.g. an unresolved merge conflict).
+    fs::write(dir.join("LED-212.plan.json"), "<<<<<<< HEAD\n{ not json").unwrap();
+    assert!(store::load(&dir, "LED-212").is_err(), "corrupt file must not load");
+
+    // Recovery falls back to the newest good backup (a designed state, not a crash).
+    let outcome = store::load_or_recover(&dir, "LED-212").unwrap();
+    assert!(outcome.recovered_from_backup, "should report recovery");
+    assert_eq!(outcome.plan.id, "LED-212");
+}
+
+#[test]
+fn load_or_recover_returns_the_live_file_when_valid() {
+    let dir = scratch("recover_clean");
+    let plan = sample();
+    store::save(&dir, &plan).unwrap();
+    let outcome = store::load_or_recover(&dir, "LED-212").unwrap();
+    assert!(!outcome.recovered_from_backup);
+    assert_eq!(outcome.plan, plan);
+}
+
+#[test]
+fn corrupt_file_with_no_backup_errors() {
+    let dir = scratch("recover_none");
+    fs::write(dir.join("X.plan.json"), "{ not json").unwrap();
+    assert!(store::load_or_recover(&dir, "X").is_err());
+}
+
+#[test]
 fn save_leaves_no_temp_file() {
     let dir = scratch("atomic");
     let plan = sample();

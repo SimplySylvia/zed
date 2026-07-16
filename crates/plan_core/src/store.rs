@@ -30,6 +30,66 @@ pub fn load(plans_dir: &Path, id: &str) -> Result<Plan> {
     serde_json::from_value(migrated).with_context(|| format!("deserializing {}", path.display()))
 }
 
+/// The result of [`load_or_recover`]: the plan plus whether it came from a `.bak`
+/// copy (a designed recovery state the UI should surface, not silently accept).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadOutcome {
+    pub plan: Plan,
+    pub recovered_from_backup: bool,
+    /// The backup revision recovered from, when `recovered_from_backup`.
+    pub recovered_rev: Option<u64>,
+}
+
+/// Load the plan, falling back to the newest good `.bak` when the live file is
+/// corrupt (F11.5 — the `.bak` undo layer; e.g. an unresolved merge conflict on
+/// `plan.json`). Errors only when neither the live file nor any backup parses.
+pub fn load_or_recover(plans_dir: &Path, id: &str) -> Result<LoadOutcome> {
+    match load(plans_dir, id) {
+        Ok(plan) => Ok(LoadOutcome {
+            plan,
+            recovered_from_backup: false,
+            recovered_rev: None,
+        }),
+        Err(live_error) => {
+            let (rev, plan) = newest_backup(plans_dir, id).ok_or_else(|| {
+                live_error.context(format!("no recoverable .bak for {id}"))
+            })?;
+            Ok(LoadOutcome {
+                plan,
+                recovered_from_backup: true,
+                recovered_rev: Some(rev),
+            })
+        }
+    }
+}
+
+/// The highest-revision `.bak` copy for `id` that parses to a valid plan.
+fn newest_backup(plans_dir: &Path, id: &str) -> Option<(u64, Plan)> {
+    let bak_dir = plans_dir.join(".bak");
+    let prefix = format!("{id}.rev");
+    let mut backups: Vec<(u64, PathBuf)> = fs::read_dir(&bak_dir)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let rev = name
+                .strip_prefix(&prefix)?
+                .strip_suffix(".plan.json")?
+                .parse::<u64>()
+                .ok()?;
+            Some((rev, entry.path()))
+        })
+        .collect();
+    backups.sort_by_key(|(rev, _)| std::cmp::Reverse(*rev));
+    backups.into_iter().find_map(|(rev, path)| {
+        let raw = fs::read_to_string(&path).ok()?;
+        let value = serde_json::from_str::<Value>(&raw).ok()?;
+        let migrated = migrate(value).ok()?;
+        let plan = serde_json::from_value::<Plan>(migrated).ok()?;
+        Some((rev, plan))
+    })
+}
+
 /// Enumerate plan ids in a directory (files named `<id>.plan.json`), sorted.
 /// Ignores backups, temp files, and anything else.
 pub fn list_plan_ids(plans_dir: &Path) -> Vec<String> {
