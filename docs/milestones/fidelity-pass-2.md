@@ -1,4 +1,4 @@
-# Fidelity pass 2 — visual polish toward the mockup (in progress)
+# Fidelity pass 2 — visual polish toward the mockup (COMPLETE)
 
 A cross-cutting `plan_ui` pass closing the finish gap between the built surface and the approved
 mockup (`docs/design/planning-mode-demo.html`). Plan: `docs/milestones/fidelity-pass-2-plan.md`.
@@ -93,11 +93,14 @@ discretion).
   source overlaps the existing guard-summary chip and isn't cleanly specified; flagged out of the
   T8 batch.
 
-## P3 — rendering-only structural adds — COMPLETE (code); §13 pending
+## P3 — rendering-only structural adds — COMPLETE, §13-verified
 
 **Status:** all tasks implemented + reviewed (two-stage on the logic-heavy ones, diff-verified on the
-pure-render ones); `plan_ui` build + 22 tests + `plan_core` suites + clippy green. §13 visual check
-outstanding (batch).
+pure-render ones); `plan_ui` build + 22 tests + `plan_core` suites + clippy green. **§13 visual
+verification under One Dark confirmed by the developer (2026-07-16)** — the guard-hold batch
+(pulsing GUARD HOLD pill, banner, input-guard panel, comment avatar cards, lint card) plus the
+status-gated states (gate-evidence card + GATE pill, red FAILED banner/pill, DONE banner + done·PR#
++ branch-strip PR chip) all walked via the `.plans/seed-state.py` switcher.
 
 - `4ec4bb465d` **T16 + T17a** — `pub(crate) DisplayState` enum + `display_state(plan)` (derives the
   §9 matrix row from plan contents: hold-gate → hold-nongate → status, with InReview/Lint/RevStaged
