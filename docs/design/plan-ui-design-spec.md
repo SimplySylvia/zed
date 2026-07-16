@@ -171,6 +171,12 @@ detail; success rows green verb, failures red; live row has pulsing dot).
 drift — 2 need you" (pulse) · info "2/5 · acc 1/6" · err "t4 failed — needs you" ·
 ok "done ✓ · PR #318". Click toggles panel.
 
+**F5.7 attention queue — 2026-07-16 revision:** shipped as a rendered **"NEEDS YOU" section in the
+plan panel** (see §4) for the active plan, NOT the pill click-cycle. The pill still conveys the
+aggregate needs-you state via its fragment/pulse; enumerating the items lives in the panel section.
+Cross-plan cycling, the pill-cycle click, and precise scroll-to-item are deferred (the app follows a
+single thread-bound plan today).
+
 ## 6. Agent-panel elements (intake & prompts) [F2.0, F3.6]
 - **Question wizard**: progress row ("Question 1 of 2" + dots: accent=current,
   success=done, dim=pending). **Question card** (editor bg): teal caps label

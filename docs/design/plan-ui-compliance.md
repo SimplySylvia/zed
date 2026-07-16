@@ -161,6 +161,14 @@ under One Dark). If they disagree, stop and flag.
   bottom** (wide), **stacked vertically when docked left/right** (narrow) — a left/right dock
   doesn't have room for two columns. *(Added 2026-07-15 per developer feedback; the design's
   "2 columns" assumed the bottom dock.)*
+- [ ] **Attention queue (F5.7):** when the active plan has items needing the user, the panel renders
+  a caps **"NEEDS YOU"** section above the pipeline/live columns — one row per item across the built
+  sources (open questions · blockers · lint · guard/gate holds · failed tasks · ticket drift ·
+  rev-behind), each row with a coarse jump (opens the Plan tab on the item's lens). *(Added
+  2026-07-16: F5.7 ships as a rendered active-plan section, a deliberate divergence from the PRD's
+  status-bar pill click-cycle-across-all-plans — cross-plan aggregation, the pill-cycle click,
+  precise scroll-to-item, and the not-yet-built sources (rehearsal F9.4, pushback F9.2) are
+  deferred.)*
 
 ## 11. Intake wizard [F2.0/F2.3b]
 
