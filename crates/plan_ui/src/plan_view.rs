@@ -41,7 +41,7 @@ actions!(
 );
 
 /// The three lenses over one plan.json (F3.1 lens switcher).
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lens {
     Spec,
     Design,

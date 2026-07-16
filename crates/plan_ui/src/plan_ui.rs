@@ -997,6 +997,172 @@ pub(crate) fn display_state(plan: &Plan) -> DisplayState {
     }
 }
 
+/// A kind of thing that can need the user in the active plan (F5.7 attention
+/// queue). Ordered as the PRD's needs-you cycle enumerates them.
+// Consumed by the queue rendering in C2; until then the enumeration is exercised
+// only by its unit tests.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AttentionKind {
+    Question,
+    Blocker,
+    Lint,
+    Guard,
+    Gate,
+    Failed,
+    Drift,
+    RevBehind,
+}
+
+/// One row of the attention queue (F5.7): what needs the user, a short human
+/// label, and the lens the row jumps to when actioned. Rendering is C2.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AttentionItem {
+    pub kind: AttentionKind,
+    pub label: SharedString,
+    pub lens: plan_view::Lens,
+}
+
+/// Enumerate everything that needs the user in the (single, active) plan, in the
+/// PRD's needs-you order (F5.7). Pure: no rendering, no side effects. Aggregate
+/// signals (questions, blockers, lint findings, drift, rev-behind) each collapse
+/// to one counted item; holding guards and failed tasks yield one item apiece.
+/// Reuses the existing predicates rather than re-deriving the filters.
+#[allow(dead_code)]
+pub(crate) fn attention_items(plan: &Plan) -> Vec<AttentionItem> {
+    use plan_view::Lens;
+
+    let mut items = Vec::new();
+
+    // 1. Unanswered open questions.
+    let questions = plan
+        .spec
+        .open_questions
+        .iter()
+        .filter(|question| question.answer.is_none())
+        .count();
+    if questions > 0 {
+        items.push(AttentionItem {
+            kind: AttentionKind::Question,
+            label: pluralize(questions, "open question").into(),
+            lens: Lens::Spec,
+        });
+    }
+
+    // 2. Non-lint blocker comments not yet resolved. `open_blocker_count` is
+    //    author-agnostic; exclude the lint author here so lint is its own kind.
+    let blockers = plan
+        .comments
+        .iter()
+        .filter(|comment| {
+            comment.severity.as_deref() == Some("blocker")
+                && comment.state.as_deref() != Some("resolved")
+                && comment.author.as_deref() != Some(plan_core::lint::LINT_AUTHOR)
+        })
+        .count();
+    if blockers > 0 {
+        items.push(AttentionItem {
+            kind: AttentionKind::Blocker,
+            label: pluralize(blockers, "blocker").into(),
+            lens: Lens::Spec,
+        });
+    }
+
+    // 3. Open policy-lint findings.
+    let lint = plan_view::open_lint_count(plan);
+    if lint > 0 {
+        items.push(AttentionItem {
+            kind: AttentionKind::Lint,
+            label: pluralize(lint, "lint finding").into(),
+            lens: Lens::Spec,
+        });
+    }
+
+    // 4. Every holding step guard that isn't a gate. Mirrors the holding-guard
+    //    scan in `exec::current_hold`, but enumerates all holds, not just the first.
+    for task in &plan.tasks {
+        for step in &task.steps {
+            if let Some(guard) = &step.guard {
+                if guard.state.as_deref() == Some("holding")
+                    && guard.guard_type.as_deref() != Some("gate")
+                {
+                    items.push(AttentionItem {
+                        kind: AttentionKind::Guard,
+                        label: format!("guard: {}.{}", task.id, step.id).into(),
+                        lens: Lens::Tasks,
+                    });
+                }
+            }
+        }
+    }
+
+    // 5. The gate hold: an in-progress GATE task, or a plain `Gate` status.
+    if let Some(task) = plan
+        .tasks
+        .iter()
+        .find(|task| task.gate && task.status == TaskStatus::InProgress)
+    {
+        items.push(AttentionItem {
+            kind: AttentionKind::Gate,
+            label: format!("gate: {}", task.id).into(),
+            lens: Lens::Tasks,
+        });
+    } else if plan.status == Status::Gate {
+        let label = plan
+            .tasks
+            .iter()
+            .find(|task| task.gate)
+            .map(|task| format!("gate: {}", task.id))
+            .unwrap_or_else(|| "gate".to_string());
+        items.push(AttentionItem {
+            kind: AttentionKind::Gate,
+            label: label.into(),
+            lens: Lens::Tasks,
+        });
+    }
+
+    // 6. Every failed task.
+    for task in plan.tasks.iter().filter(|task| task.status == TaskStatus::Failed) {
+        items.push(AttentionItem {
+            kind: AttentionKind::Failed,
+            label: format!("{} failed", task.id).into(),
+            lens: Lens::Tasks,
+        });
+    }
+
+    // 7. Any stamped ticket drift.
+    if any_ticket_drift(plan) {
+        items.push(AttentionItem {
+            kind: AttentionKind::Drift,
+            label: "ticket drift".into(),
+            lens: Lens::Spec,
+        });
+    }
+
+    // 8. The executing agent trails the plan's current rev (`sync_receipt`'s signal).
+    let (_, behind) = sync_receipt(plan);
+    if behind {
+        items.push(AttentionItem {
+            kind: AttentionKind::RevBehind,
+            label: "agent a rev behind".into(),
+            lens: Lens::Tasks,
+        });
+    }
+
+    items
+}
+
+/// `"1 noun"` / `"{count} nouns"` for the aggregate attention labels.
+#[allow(dead_code)]
+fn pluralize(count: usize, noun: &str) -> String {
+    if count == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{count} {noun}s")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1191,5 +1357,126 @@ mod tests {
             }]
         }));
         assert_eq!(display_state(&plan), DisplayState::GuardHold);
+    }
+
+    use super::plan_view::Lens;
+
+    #[test]
+    fn attention_items_enumerates_in_prd_order() {
+        // Open question + a (non-lint) blocker + a holding step guard + a failed
+        // task → one item each, emitted in the PRD needs-you order.
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "executing",
+            "rev": 1, "thread": "a",
+            "spec": { "goal": "g", "open_questions": [
+                {"id": "q1"}, {"id": "q2", "answer": "yes"}
+            ] },
+            "comments": [
+                {"id": "c1", "author": "user", "severity": "blocker", "state": "open"}
+            ],
+            "tasks": [
+                {"id": "t1", "status": "failed"},
+                {"id": "t2", "status": "in_progress",
+                 "steps": [{"id": "s1", "guard": {"type": "approve", "state": "holding"}}]}
+            ]
+        }));
+        let items = attention_items(&plan);
+        let shape: Vec<(AttentionKind, &str, Lens)> = items
+            .iter()
+            .map(|item| (item.kind, item.label.as_ref(), item.lens))
+            .collect();
+        assert_eq!(
+            shape,
+            vec![
+                (AttentionKind::Question, "1 open question", Lens::Spec),
+                (AttentionKind::Blocker, "1 blocker", Lens::Spec),
+                (AttentionKind::Guard, "guard: t2.s1", Lens::Tasks),
+                (AttentionKind::Failed, "t1 failed", Lens::Tasks),
+            ]
+        );
+    }
+
+    #[test]
+    fn attention_items_aggregates_counts_but_enumerates_instances() {
+        // Questions/blockers/lint collapse to one counted item each; failed tasks
+        // yield one item apiece. The lint comments are excluded from the blocker
+        // count (own kind) even though they, too, are open.
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "executing",
+            "rev": 1, "thread": "a",
+            "spec": { "goal": "g", "open_questions": [{"id": "q1"}, {"id": "q2"}] },
+            "comments": [
+                {"id": "b1", "author": "user", "severity": "blocker", "state": "open"},
+                {"id": "b2", "author": "user", "severity": "blocker", "state": "open"},
+                {"id": "l1", "author": "plan-lint", "state": "open"},
+                {"id": "l2", "author": "plan-lint", "state": "open"}
+            ],
+            "tasks": [{"id": "t1", "status": "failed"}, {"id": "t2", "status": "failed"}]
+        }));
+        let items = attention_items(&plan);
+        let shape: Vec<(AttentionKind, &str)> = items
+            .iter()
+            .map(|item| (item.kind, item.label.as_ref()))
+            .collect();
+        assert_eq!(
+            shape,
+            vec![
+                (AttentionKind::Question, "2 open questions"),
+                (AttentionKind::Blocker, "2 blockers"),
+                (AttentionKind::Lint, "2 lint findings"),
+                (AttentionKind::Failed, "t1 failed"),
+                (AttentionKind::Failed, "t2 failed"),
+            ]
+        );
+    }
+
+    #[test]
+    fn attention_items_empty_for_a_clean_plan() {
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "approved",
+            "rev": 1, "thread": "a", "spec": { "goal": "g" }
+        }));
+        assert!(attention_items(&plan).is_empty());
+    }
+
+    #[test]
+    fn attention_items_surfaces_the_gate_hold() {
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "executing",
+            "rev": 1, "thread": "a", "spec": { "goal": "g" },
+            "tasks": [{"id": "g1", "gate": true, "status": "in_progress"}]
+        }));
+        let items = attention_items(&plan);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].kind, AttentionKind::Gate);
+        assert_eq!(items[0].label.as_ref(), "gate: g1");
+        assert_eq!(items[0].lens, Lens::Tasks);
+    }
+
+    #[test]
+    fn attention_items_flags_drift_and_rev_behind() {
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "executing",
+            "rev": 6, "thread": "a", "spec": { "goal": "g" },
+            "tickets": [{
+                "source": "jira", "key": "LED-1",
+                "drift": { "status_changed": true, "ac_changed": false, "fields_changed": ["status"] }
+            }],
+            "history": [
+                { "by": "agent", "kind": "revision", "rev": 4, "at": "2026-07-11T09:00:00Z" }
+            ]
+        }));
+        let items = attention_items(&plan);
+        let shape: Vec<(AttentionKind, &str, Lens)> = items
+            .iter()
+            .map(|item| (item.kind, item.label.as_ref(), item.lens))
+            .collect();
+        assert_eq!(
+            shape,
+            vec![
+                (AttentionKind::Drift, "ticket drift", Lens::Spec),
+                (AttentionKind::RevBehind, "agent a rev behind", Lens::Tasks),
+            ]
+        );
     }
 }
