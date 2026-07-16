@@ -262,10 +262,21 @@ pub fn lint(plan: &Plan, policy: &Policy, repo_root: Option<&Path>) -> Vec<Findi
         }
     }
 
-    // Deferred (recorded no-ops — the engine hosts them cheaply when inputs land):
+    if policy.ticket_coverage != Severity::Off {
+        for uncovered in crate::tickets::uncovered_ticket_acs(plan) {
+            let id = crate::tickets::ticket_ac_id(&uncovered.ticket_key, uncovered.index);
+            findings.push(Finding {
+                rule_id: "ticket-coverage",
+                severity: policy.ticket_coverage,
+                message: format!("ticket AC {id} (\"{}\") maps to no plan criterion", uncovered.text),
+                block: Some(id),
+            });
+        }
+    }
+
+    // Deferred (recorded no-op — the engine hosts it cheaply when inputs land):
     // - `prod-requires-gate`: the schema carries no "prod" signal on a task yet
     //   (M5c open q3); revisit with a prod signal later.
-    // - `ticket-coverage`: needs `tickets[]`/`ticket_ac` mapping (M8).
 
     findings
 }

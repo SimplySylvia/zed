@@ -211,6 +211,23 @@ fn git_commit_format_off_suppresses_the_rule() {
     assert!(lint::lint(&plan, &policy, None).is_empty());
 }
 
+#[test]
+fn ticket_coverage_fires_on_uncovered_ticket_ac() {
+    let plan = plan(serde_json::json!({
+        "schema_version": 1, "id": "P", "title": "t", "status": "in_review", "rev": 1,
+        "thread": "a", "tickets": [{ "source": "jira", "key": "LED-1", "ac": ["one", "two"] }],
+        "spec": { "goal": "g", "acceptance": [{ "id": "a1", "ticket_ac": "LED-1#1" }] }
+    }));
+    let findings = lint::lint(&plan, &Policy::default(), None);
+    let coverage: Vec<_> = findings
+        .iter()
+        .filter(|finding| finding.rule_id == "ticket-coverage")
+        .collect();
+    assert_eq!(coverage.len(), 1);
+    assert_eq!(coverage[0].severity, Severity::Blocker);
+    assert_eq!(coverage[0].block.as_deref(), Some("LED-1#2"));
+}
+
 fn plan_lint_comments(plan: &Plan) -> Vec<&plan_core::Comment> {
     plan.comments
         .iter()

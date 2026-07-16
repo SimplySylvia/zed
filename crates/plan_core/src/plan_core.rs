@@ -13,6 +13,7 @@ pub mod lint;
 pub mod rev;
 pub mod schema;
 pub mod store;
+pub mod tickets;
 
 pub use schema::*;
 

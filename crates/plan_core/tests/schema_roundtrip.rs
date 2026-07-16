@@ -11,7 +11,7 @@ fn fixture_parses_to_expected_values() {
     assert_eq!(plan.id, "LED-212");
     assert_eq!(plan.rev, 5);
     assert_eq!(plan.tasks.len(), 2);
-    assert_eq!(plan.spec.acceptance.len(), 2);
+    assert_eq!(plan.spec.acceptance.len(), 4);
     assert_eq!(plan.tickets.len(), 1);
 
     // The approval guard on t2.s2 is captured with its type.

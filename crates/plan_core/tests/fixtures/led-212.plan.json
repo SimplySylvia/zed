@@ -65,6 +65,26 @@
         "done": false,
         "evidence": [],
         "waived": null
+      },
+      {
+        "id": "a3",
+        "when": "a page URL is opened directly",
+        "shall": "deep-link to that page of invoices",
+        "ticket_ac": "LED-212#3",
+        "tasks": ["t2"],
+        "done": false,
+        "evidence": [],
+        "waived": null
+      },
+      {
+        "id": "a4",
+        "when": "invoices are exported",
+        "shall": "export the full set unaffected by pagination",
+        "ticket_ac": "LED-212#4",
+        "tasks": ["t2"],
+        "done": false,
+        "evidence": [],
+        "waived": null
       }
     ],
     "open_questions": [
