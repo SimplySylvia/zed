@@ -616,8 +616,10 @@ impl PlanView {
             .child(self.render_task_list(plan, cx))
     }
 
-    /// The task list, with the commit rail (§9.1) from launch onward: one
-    /// continuous spine drawn behind per-task node gutters.
+    /// The task list, with the commit rail (§9.1) from launch onward: one continuous
+    /// 2px spine drawn behind the per-task node gutters. The spine is inset from the
+    /// top so it begins at the first node's center (not above it) and runs down through
+    /// the list toward the foot.
     fn render_task_list(&self, plan: &Plan, cx: &Context<Self>) -> AnyElement {
         let show_rail = Self::shows_git(&plan.status);
         let rows: Vec<AnyElement> = plan
@@ -641,9 +643,13 @@ impl PlanView {
             .collect();
         let list = v_flex().gap_2().children(rows);
         if show_rail {
-            // The spine spans only the task list, so the 2px line ends at the last
-            // node; the foot sits below it. Centered under the 22px gutter so the
-            // nodes mask it.
+            // One continuous spine behind the gutters (the node fills mask it where they
+            // overlap). It is inset from the top by the first node's center — 13.5px
+            // (pt_2 = 8px + half of the 11px node) — so it begins at the first node
+            // rather than above it, and runs the list's full height down toward the
+            // foot. The exact last-node terminus needs per-row measurement and stays a
+            // deferral (§8). `left = 10` centers the 2px line under the 11px node
+            // (node centered in the 22px gutter → center x = 11).
             v_flex()
                 .child(
                     div()
@@ -651,8 +657,8 @@ impl PlanView {
                         .child(
                             div()
                                 .absolute()
-                                .left(px(11.))
-                                .top_0()
+                                .left(px(10.))
+                                .top(px(13.5))
                                 .h_full()
                                 .w(px(2.))
                                 .bg(cx.theme().colors().border),
@@ -1458,9 +1464,9 @@ fn render_checkbox(task: &Task, cx: &App) -> AnyElement {
     }
 }
 
-/// A commit-rail gutter (§9.1): a fixed-width left column holding just the status
-/// node, aligned to the task-card header. The continuous spine is drawn once,
-/// behind these gutters, by [`PlanView::render_tasks`].
+/// A commit-rail gutter (§9.1): a fixed-width left column holding the status node.
+/// The continuous spine is drawn once behind these gutters by
+/// [`PlanView::render_task_list`]; the node's fill masks the spine where they overlap.
 fn rail_gutter(task: &Task, is_amendment: bool, cx: &App) -> impl IntoElement {
     v_flex()
         .w(px(22.))
