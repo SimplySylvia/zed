@@ -491,12 +491,7 @@ impl PlanView {
                 .child(ahead_behind)
                 .child(dirty_dot)
                 .child(div().flex_1())
-                .child(
-                    Label::new("PR —")
-                        .buffer_font(cx)
-                        .size(LabelSize::XSmall)
-                        .color(Color::Placeholder),
-                )
+                .children(pr_chip(plan, "open-pr-strip", cx))
                 .into_any_element(),
         )
     }
@@ -632,12 +627,7 @@ impl PlanView {
                     .size(LabelSize::XSmall)
                     .color(Color::Placeholder),
             )
-            .child(
-                Label::new("⑂ PR —")
-                    .buffer_font(cx)
-                    .size(LabelSize::XSmall)
-                    .color(Color::Placeholder),
-            )
+            .children(pr_chip(plan, "open-pr-foot", cx))
     }
 
     /// Task card (compliance §7 / design-spec §3.5) with a flag affordance and its
@@ -1600,6 +1590,45 @@ impl DirtyState {
             DirtyState::TaskFailed => cx.theme().status().deleted,
         }
     }
+}
+
+/// The PR affordance (§5/§8): a clickable GitHub-icon chip linking to the PR when
+/// one exists (`plan.git.pr.url`), else nothing at all (no placeholder). Populating
+/// the PR (creation, checks, approvals) is v1/F10.4; this only links to a recorded
+/// URL. `id` disambiguates the strip vs the rail-foot instance.
+fn pr_chip(plan: &Plan, id: &'static str, cx: &App) -> Option<AnyElement> {
+    let pr = plan.git.as_ref()?.pr.as_ref()?;
+    let url = pr.get("url").and_then(|value| value.as_str())?.to_string();
+    let label = match pr.get("number").and_then(|value| value.as_u64()) {
+        Some(number) => format!("PR #{number}"),
+        None => "PR".to_string(),
+    };
+    let purple = syntax_color(cx, "keyword");
+    Some(
+        h_flex()
+            .id(id)
+            .gap_1()
+            .px_1p5()
+            .py_0p5()
+            .rounded_md()
+            .border_1()
+            .border_color(purple)
+            .cursor_pointer()
+            .hover(|style| style.bg(cx.theme().colors().element_hover))
+            .child(
+                Icon::new(IconName::Github)
+                    .size(IconSize::XSmall)
+                    .color(Color::Custom(purple)),
+            )
+            .child(
+                Label::new(label)
+                    .buffer_font(cx)
+                    .size(LabelSize::XSmall)
+                    .color(Color::Custom(purple)),
+            )
+            .on_click(move |_, _, cx| cx.open_url(&url))
+            .into_any_element(),
+    )
 }
 
 /// The shared card chassis (compliance §6 / demo `.card`): 8px radius, panel bg,

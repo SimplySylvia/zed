@@ -74,8 +74,11 @@ under One Dark). If they disagree, stop and flag.
   dirty indicator, PR slot.
 - [ ] behind > 0 → amber (drift signal); dirty dot text tracks execution state
   (clean / agent editing / task failed).
-- [ ] PR slot: placeholder "PR —" until created; purple live chip with checks +
-  approvals after.
+- [ ] PR slot: **empty until a PR exists (no placeholder)**; once one does, a purple
+  **GitHub-icon button** (`⧉ github` + `PR #n`) that opens the PR on the host.
+  Checks/approvals in the chip are v1/F10.4. *(Revised 2026-07-15 — the "PR —"
+  placeholder was dropped per developer feedback: show nothing until there's a real,
+  clickable PR.)*
 
 ## 6. Card chassis (lint, staged rev, rehearsal, gate, amendment, PR, distillation)
 
@@ -120,8 +123,9 @@ under One Dark). If they disagree, stop and flag.
   pulsing = in progress · error fill = failed · amber hollow = gate · purple rotated
   square + branch curve = amendment.
 - [ ] Every visible task row has a node once the rail is shown (no gaps in the spine).
-- [ ] Foot shows base + ahead count (+ PR chip once created); node context menu offers
-  revert-task-commit.
+- [ ] Foot shows base + ahead count (+ the GitHub-icon PR button once a PR exists — no
+  placeholder); node context menu offers revert-task-commit *(the revert action is
+  agent-routed and deferred — see M7b)*.
 
 ## 9. Review primitives [F3.x]
 

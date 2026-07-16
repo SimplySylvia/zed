@@ -39,11 +39,15 @@ the strip + rail before M7 (and M7b) is marked done.
   working tree, not a commit). Per the developer: a future revert action **routes through the
   agent** (it runs `git revert`), never `plan_ui` shelling git or upstream git additions. The
   read-only-over-git architecture (M7a decision 2) stands.
-- **PR chip is a placeholder** (`PR —` / `⑂ PR —`) — the live PR chip is v1/F10.4.
+- **PR slot shows nothing until a PR exists** (no `PR —` placeholder — dropped per developer
+  feedback 2026-07-15; design docs updated). When `plan.git.pr.url` is set, the strip + rail foot
+  render a **purple GitHub-icon button** (`PR #n`) that `open_url`s the PR. Populating the PR
+  (creation, checks, approvals) stays v1/F10.4.
 
 **§13 protocol (developer, under One Dark):** run `ZED_PLAN=1 cargo run -p zed -- .`; on an
 `executing` plan confirm — (1) the **branch strip** shows `⎇ branch ← base`, `↑ ↓` (behind amber),
-a dirty dot + label, and `PR —`, and is **hidden before launch**; (2) the **commit rail** shows a
+a dirty dot + label, and **no PR slot** (a GitHub-icon PR button appears only when `git.pr.url` is
+set), and is **hidden before launch**; (2) the **commit rail** shows a
 node per task (no spine gaps), the in-progress node **pulses**, a committed task shows a filled
 node + **sha chip**, an amended task shows the **purple node**, and the **foot** shows base + ahead.
 

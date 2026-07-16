@@ -314,7 +314,8 @@ buttons) is GPUI around them.
 · PR chip` (amber ↓ = drift, red ● = conflicts, PR chip live with checks/approvals).
 **Commit rail:** git-graph gutter aligned to tasks — filled node per commit (SHA +
 diffstat chip on the task), ◆ diamond branching for amendments, hollow ⏸ for gates;
-right-click node → revert task commit; rail foot shows base + ahead. **Worktree badges**
+right-click node → revert task commit; rail foot shows base + ahead (+ the GitHub-icon
+PR button once a PR exists, no placeholder). **Worktree badges**
 in thread rows. Drift/conflict banners + cards per §7 amendments.
 
 ## 10. Agent integration
@@ -870,8 +871,10 @@ amber header `⛓ Ticket drift · edited by @who when`, body shows old line
 One row under the title: `⎇ branch ← base` chip (mono, editor bg) · `↑n ↓n`
 (ahead success / behind placeholder; behind>0 turns amber = drift) · dirty dot +
 label (success "clean" / modified "agent editing" / deleted "task failed") ·
-right: PR chip (placeholder "PR —" until created; purple live: `⑂ PR #318 ·
-checks ✓ · @who approved`).
+right: PR slot — **empty until a PR exists (no placeholder)**, then a purple
+**GitHub-icon button** opening the PR (`⧉ PR #318`; checks/approvals `· checks ✓ ·
+@who approved` are v1/F10.4). *(Revised 2026-07-15: placeholder dropped — show
+nothing until there's a clickable PR.)*
 
 ### 3.4 Cards (shared chassis)
 Rounded 8px, panel bg, colored header band 11px caps (warn/ok/info/err/purple) with
