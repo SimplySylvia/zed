@@ -402,6 +402,23 @@ impl PlanPanel {
                     .child(div().flex_1())
                     .children(self.panel_actions(plan, cx))
                     .child(
+                        // Cycle the dock position Left → Bottom → Right (persists via
+                        // set_position); mirrors the dock's move-to-next-position.
+                        IconButton::new("cycle-plan-dock", IconName::ArrowRightLeft)
+                            .icon_size(IconSize::Small)
+                            .tooltip(Tooltip::text("Move panel (left / bottom / right)"))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let next = match crate::plan_settings::PlanSettings::get_global(cx)
+                                    .dock
+                                {
+                                    DockPosition::Left => DockPosition::Bottom,
+                                    DockPosition::Bottom => DockPosition::Right,
+                                    DockPosition::Right => DockPosition::Left,
+                                };
+                                this.set_position(next, window, cx);
+                            })),
+                    )
+                    .child(
                         IconButton::new("open-plan-tab", IconName::Maximize)
                             .icon_size(IconSize::Small)
                             .tooltip(Tooltip::text("Open as tab"))
