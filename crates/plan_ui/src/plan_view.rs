@@ -2605,6 +2605,8 @@ fn render_spec(plan: &Plan, cx: &App) -> impl IntoElement {
     let colors = cx.theme().colors();
     let when_color = syntax_color(cx, "type");
     let shall_color = syntax_color(cx, "keyword");
+    // Stale evidence (agent-supplied `Evidence.stale`) tints its chip amber (F4.6d).
+    let stale_color = cx.theme().status().modified;
     v_flex()
         .p_3()
         .gap_2()
@@ -2626,22 +2628,16 @@ fn render_spec(plan: &Plan, cx: &App) -> impl IntoElement {
                 .children(spec.scope.out.iter().map(|item| bullet(item)))
         })
         .when(!spec.acceptance.is_empty(), |column| {
-            column.child(sechead("ACCEPTANCE", cx)).children(
+            // Running count in the sechead (design-spec §3.8): `ACCEPTANCE · n/m`.
+            let done = spec.acceptance.iter().filter(|criterion| criterion.done).count();
+            let total = spec.acceptance.len();
+            column.child(sechead(&format!("ACCEPTANCE · {done}/{total}"), cx)).children(
                 spec.acceptance.iter().map(|acceptance| {
                     let (glyph, glyph_color) = if acceptance.done {
                         ("✓", Color::Created)
                     } else {
                         ("○", Color::Placeholder)
                     };
-                    let evidence = acceptance.evidence.first().map(|evidence| {
-                        format!(
-                            "{} {}",
-                            evidence.evidence_type.as_deref().unwrap_or("evidence"),
-                            evidence.reference.as_deref().unwrap_or_default()
-                        )
-                        .trim()
-                        .to_string()
-                    });
                     h_flex()
                         .gap_2()
                         .items_start()
@@ -2676,9 +2672,22 @@ fn render_spec(plan: &Plan, cx: &App) -> impl IntoElement {
                                 .when_some(acceptance.ticket_ac.clone(), |row, ticket| {
                                     row.child(crate::mono_chip_ticket(ticket, shall_color, cx))
                                 })
-                                .when_some(evidence, |row, evidence| {
-                                    row.child(crate::mono_chip(evidence, colors.text_accent, cx))
-                                }),
+                                // One chip per evidence entry; stale evidence tints amber.
+                                .children(acceptance.evidence.iter().map(|evidence| {
+                                    let text = format!(
+                                        "{} {}",
+                                        evidence.evidence_type.as_deref().unwrap_or("evidence"),
+                                        evidence.reference.as_deref().unwrap_or_default()
+                                    )
+                                    .trim()
+                                    .to_string();
+                                    let color = if evidence.stale {
+                                        stale_color
+                                    } else {
+                                        colors.text_accent
+                                    };
+                                    crate::mono_chip(text, color, cx)
+                                })),
                         )
                 }),
             )
