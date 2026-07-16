@@ -93,10 +93,54 @@ discretion).
   source overlaps the existing guard-summary chip and isn't cleanly specified; flagged out of the
   T8 batch.
 
-## P3 — rendering-only structural adds — PENDING
-`DisplayState` derivation → toolbar status pill · top-of-plan banner strip · gate-evidence card body
-· live-column caps header + pulsing live row + verb vocabulary · comment avatar cards · input-guard
-panel body · lint card.
+## P3 — rendering-only structural adds — COMPLETE (code); §13 pending
+
+**Status:** all tasks implemented + reviewed (two-stage on the logic-heavy ones, diff-verified on the
+pure-render ones); `plan_ui` build + 22 tests + `plan_core` suites + clippy green. §13 visual check
+outstanding (batch).
+
+- `4ec4bb465d` **T16 + T17a** — `pub(crate) DisplayState` enum + `display_state(plan)` (derives the
+  §9 matrix row from plan contents: hold-gate → hold-nongate → status, with InReview/Lint/RevStaged
+  sub-branching). `pill_fragment` rewired onto it — incl. the previously-missing **red TaskFailed**
+  row and **done · PR #n**. Helpers `role()`/`caps_label()`/`pulses()` single-source the color.
+- `79c982f62e` **T17b + T18** — toolbar leads with a tinted **caps status pill** (role bg/border,
+  pulses at gate/guard-hold); the redundant toolbar title moved to a body **h1** (`plan.title`);
+  **top-of-plan banner strip** (`render_banners`) for GuardHold/TaskFailed/Gate/Done per §14.
+- `42ae330522` **T19** — **gate-evidence card body**: one row per acceptance criterion with evidence
+  (✓/claim + mono evidence chips, green/amber by done+stale) + actions `✓ Approve & finish` /
+  `Re-verify all` / `Request changes`.
+- `8f1fc52f77` **T20** — live column: **caps section header** (from `display_state`), **pulsing
+  accent dot** on the running row, and a curated **verb mapping** (tool-kind → read/edit/run/plan/
+  fetch via serde canonical names, no new dep).
+- `c0c06f961d` **T21** — comments render as **editor-bg cards** with the full multi-message thread,
+  14px author **avatars** (you-amber / agent-purple / lint), and `rev N` provenance chips.
+- `4b6e730260` **T22** — **input-guard evidence panel**: caps evidence-target label (from
+  `evidence_for`), input-field chrome, `Record & continue ⏎` + `Pause — I'll verify later` (wired to
+  `pause_plan`), and the hook hint.
+- `965b504a68` **T23** — lint findings render in a dedicated **§6 lint card** (warn band, severity
+  glyph + finding + mono rule id, resolved → dimmed + `✓ auto-fixed` pill); lint comments are
+  filtered out of the inline per-task rows (no double render).
+
+### Mapping decisions (P3)
+- **`DisplayState` is the single matrix source** for pill fragment/color, toolbar pill, and banners;
+  `role()` centralizes the color so the 4 consumers don't drift. Intake-answered (`questions==0`) →
+  Muted; asking → Warning.
+- **Curated verbs** come from the ACP tool-call feed via serde canonical names (edit/run/read/fetch/
+  plan). Fork-clean (no `agent_client_protocol` dep added).
+- **Lint = a card, not inline comments** (§6); the card is the single place lint findings appear.
+
+### Deferrals (P3, recorded)
+- **Rehearsed matrix row** — no `plan_core` rehearsal/mismatch data; `DisplayState` has no Rehearsed
+  variant (would need schema + agent support).
+- **Live plan-semantic verbs** `guard/hook/ev/drift/plan` — not derivable from the ACP tool-call feed
+  (would need plan-lifecycle event plumbing); only tool-derived verbs render.
+- **Gate secondary actions** `Re-verify all` / `Request changes` — rendered but agent-routed, handlers
+  deferred (like revert/resync).
+- **Lint "passed n/n" pass card** — no reliable "lint ran, 0 findings" signal; the card renders only
+  when findings exist.
+- **Input-field live text capture** — chrome only; live capture needs an editor entity (F4.5b).
+- **Banner/pill copy nuances** — gate banner's task-number + "staging evidence attached" phrasing, the
+  §9 pill counts ("2 need you"), and the rev-staged `· pushback` suffix are §14/§9 copy gaps.
 
 ## Fork discipline
 Additive only, all in `plan_ui`, except Task 0's design-doc edits. No upstream code touched —
