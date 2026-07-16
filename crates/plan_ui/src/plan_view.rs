@@ -587,28 +587,34 @@ impl PlanView {
             .collect();
         let list = v_flex().gap_2().children(rows);
         if show_rail {
-            // The continuous spine: one full-height 2px line behind the node gutters
-            // (centered under the 22px gutter, so the nodes mask it).
-            div()
-                .relative()
+            // The spine spans only the task list, so the 2px line ends at the last
+            // node; the foot sits below it. Centered under the 22px gutter so the
+            // nodes mask it.
+            v_flex()
                 .child(
                     div()
-                        .absolute()
-                        .left(px(11.))
-                        .top_0()
-                        .h_full()
-                        .w(px(2.))
-                        .bg(cx.theme().colors().border),
+                        .relative()
+                        .child(
+                            div()
+                                .absolute()
+                                .left(px(11.))
+                                .top_0()
+                                .h_full()
+                                .w(px(2.))
+                                .bg(cx.theme().colors().border),
+                        )
+                        .child(list),
                 )
-                .child(v_flex().child(list).child(self.render_rail_foot(plan, cx)))
+                .child(self.render_rail_foot(plan, cx))
                 .into_any_element()
         } else {
             list.into_any_element()
         }
     }
 
-    /// The commit-rail foot (§8): base marker + ahead count + PR placeholder,
-    /// aligned under the spine. PR chip is a placeholder until F10.4 (v1).
+    /// The commit-rail foot (§8): the `▼` base terminus centered under the spine
+    /// (below where it ends), then base + ahead count + the PR button (once one
+    /// exists). PR population is v1/F10.4.
     fn render_rail_foot(&self, plan: &Plan, cx: &Context<Self>) -> impl IntoElement {
         let facts = self.git_facts(plan, cx);
         let base = facts
@@ -619,10 +625,22 @@ impl PlanView {
         h_flex()
             .gap_2()
             .pt_2()
-            .pl(px(2.))
             .items_center()
+            // `▼` terminus, centered in the 22px gutter column (aligned to the spine).
             .child(
-                Label::new(format!("▼ {base} · ↑{ahead} ahead"))
+                v_flex()
+                    .w(px(22.))
+                    .flex_none()
+                    .items_center()
+                    .child(
+                        Label::new("▼")
+                            .buffer_font(cx)
+                            .size(LabelSize::XSmall)
+                            .color(Color::Placeholder),
+                    ),
+            )
+            .child(
+                Label::new(format!("{base} · ↑{ahead} ahead"))
                     .buffer_font(cx)
                     .size(LabelSize::XSmall)
                     .color(Color::Placeholder),
