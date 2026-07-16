@@ -379,6 +379,11 @@ impl PlanView {
             .child(
                 h_flex()
                     .gap_0p5()
+                    .p_0p5()
+                    .bg(cx.theme().colors().panel_background)
+                    .border_1()
+                    .border_color(cx.theme().colors().border_variant)
+                    .rounded_md()
                     .child(self.lens_button(Lens::Spec, "Spec", cx))
                     .child(self.lens_button(Lens::Design, "Design", cx))
                     .child(self.lens_button(Lens::Tasks, "Tasks", cx)),
