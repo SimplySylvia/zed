@@ -55,11 +55,43 @@ enriched LED-212 seed (6 tasks spanning the full rail-node vocabulary).
   last-node termination needs per-row measurement and stays a deferral — same "full-height" deferral
   that predates this pass. Developer accepted the continuous-line-toward-foot result in §13.
 
-## P2 — render data we already carry — PENDING
-sha diffstat + accent color · tests count/failed variant + evidence chip · guard receipts (timestamp
-+ what-ran) · amendment tag + GATE badge · anchor `file:line` · `shows_git` window (strip + rail at
-Approved/Done) · sync-receipt amber "rev behind" variant · pushback→red state chip · drift
-attribution + Apply-rev.
+## P2 — render data we already carry — COMPLETE (developer directed to proceed)
+
+**Status:** implemented + two-stage reviewed (spec + code-quality); `plan_ui` build + 13/13 tests +
+`plan_core` exec suite + clippy green. The seed was enriched to exercise every P2 state (tests
+counts, pushback, agent-behind); developer directed to move on to P3 (P2 §13 spot-check at their
+discretion).
+
+- `facd33d407` **T7/T8/T10** — sha chip recolored `text_accent` + segmented `+`/`−` diffstat;
+  `tests_chip_label` (documented Value convention + unit test) rendering `✓ n tests` / `✕ n tests`;
+  purple `◆ amendment · rev n` tag (via new `exec::latest_amendment_rev`, one history scan);
+  amber `GATE` badge when `task.gate`. Chip order per §7.
+- `7f8222dde8` **T11 + T14** — comment anchor appends `+ file:line` from the first code ref (§9);
+  `comment_state_color` gains a `pushback → Error(red)` arm; toolbar blocker chip → singular
+  `⚑ n blocker` token (§3).
+- `f3c1773e06` **T12** — `shows_git` widened to `Approved | Executing | Paused | Gate | Amending |
+  Done` so the branch strip + rail render from launch through completion (§5/§8); unit-tested.
+- `00e4ac1593` **T13** — `sync_receipt` returns `(text, behind)`; amber "agent synced rev N · <at>
+  — rev M syncs before next task" when the latest agent revision trails the plan rev (§10);
+  behind-state test added.
+
+### Mapping decisions (P2)
+- **`tests` Value convention** (schema leaves `artifacts.tests` freeform): number→`✓ N tests`; bool
+  true/false→`✓ tests`/`✕ tests`; object `{failed,passed}`→failed>0 red `✕ {failed}` else green
+  `✓ {passed}`; string→`✓ {s}`; else→`✓ tests`.
+- **Agent-behind signal:** the latest history entry with `by=="agent"` and `kind=="revision"`; its
+  `rev` < `plan.rev` ⇒ behind (no dedicated schema field needed).
+- **`⚑ n blocker`** follows the contract's compact singular token even for n>1 (not English plural).
+
+### Deferrals (P2)
+- **T15 drift attribution + Apply-rev — DEFERRED (recorded):** `TicketDrift` carries no author/when,
+  so attribution needs a schema field + agent support (not "render existing data"); and Apply-rev
+  conflicts with the M8b decision that the drift card is informational and applying/resync is
+  agent-routed (`render_drift_card` is a free fn with no action plumbing). Pursuing it is
+  schema-change + agent-flow work, not UI polish. The drift card stays informational.
+- **Evidence chip (teal `⛨ guards n/n` / `n evidence items`) — DEFERRED:** the "n evidence items"
+  source overlaps the existing guard-summary chip and isn't cleanly specified; flagged out of the
+  T8 batch.
 
 ## P3 — rendering-only structural adds — PENDING
 `DisplayState` derivation → toolbar status pill · top-of-plan banner strip · gate-evidence card body
