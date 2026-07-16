@@ -600,8 +600,26 @@ impl PlanView {
         label: &'static str,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        Button::new(label, label)
-            .toggle_state(self.lens == lens)
+        let selected = self.lens == lens;
+        let colors = cx.theme().colors();
+        div()
+            .id(label)
+            .px_2()
+            .py_0p5()
+            .rounded_sm()
+            .cursor_pointer()
+            .text_size(px(12.))
+            .when(selected, |button| {
+                // Segmented-on (design-spec §1): a lighter `element.selected` fill inside
+                // the panel-background container so the active lens clearly stands out.
+                button.bg(colors.element_selected).text_color(colors.text)
+            })
+            .when(!selected, |button| {
+                button
+                    .text_color(colors.text_muted)
+                    .hover(|style| style.bg(colors.element_hover))
+            })
+            .child(label)
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.lens = lens;
                 cx.notify();
