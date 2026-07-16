@@ -1543,11 +1543,6 @@ impl PlanView {
             Some("concern") => ("⚠", Color::Warning),
             _ => ("💡", Color::Muted),
         };
-        let text = comment
-            .thread
-            .first()
-            .and_then(|message| message.text.clone())
-            .unwrap_or_default();
         let state = comment.state.clone().unwrap_or_default();
         let is_lint = comment.author.as_deref() == Some("plan-lint");
         // Lint blockers clear by fixing the issue and re-linting, not by manual
@@ -1571,14 +1566,18 @@ impl PlanView {
             })
         });
         let comment_id = comment.id.clone();
-        let muted = cx.theme().colors().text_muted;
+        let colors = cx.theme().colors();
+        let muted = colors.text_muted;
+        let text_placeholder = colors.text_placeholder;
+        let border_variant = colors.border_variant;
+        let editor_background = colors.editor_background;
         let state_color = comment_state_color(&state).color(cx);
-        h_flex()
-            .pl_4()
+        // Header carries the severity/state/anchor/rule metadata; the thread below
+        // renders every message as an avatar-bearing row (compliance §9, spec §3.7).
+        let header = h_flex()
             .gap_2()
             .items_center()
             .child(Label::new(glyph).color(color).size(LabelSize::Small))
-            .child(Label::new(text).size(LabelSize::Small))
             .child(chip(state, state_color))
             .when(!is_lint, |row| {
                 row.when_some(anchor_label, |row, anchor_label| {
@@ -1595,6 +1594,7 @@ impl PlanView {
                         .color(Color::Warning),
                 )
             })
+            .child(div().flex_1())
             .when(resolvable, |row| {
                 row.child(
                     Button::new(SharedString::from(format!("resolve-{comment_id}")), "✓ resolve")
@@ -1603,7 +1603,61 @@ impl PlanView {
                             move |this, _, _window, cx| this.resolve_comment(&comment_id, cx)
                         })),
                 )
-            })
+            });
+        let messages = comment.thread.iter().filter_map(|entry| {
+            let text = entry.text.as_deref().unwrap_or("");
+            if text.is_empty() {
+                return None;
+            }
+            // Author → (avatar initial, avatar tint): you (amber), agent (keyword
+            // purple), the linter (placeholder), or an unknown author (placeholder).
+            let (initial, avatar_color) = match entry.author.as_deref() {
+                Some("user") => ("Y", cx.theme().status().modified),
+                Some("agent") => ("C", syntax_color(cx, "keyword")),
+                Some("plan-lint") => ("L", text_placeholder),
+                _ => ("?", text_placeholder),
+            };
+            Some(
+                h_flex()
+                    .gap_2()
+                    .items_start()
+                    .child(
+                        h_flex()
+                            .size(px(14.))
+                            .flex_none()
+                            .rounded_full()
+                            .items_center()
+                            .justify_center()
+                            .bg(avatar_color.opacity(0.2))
+                            .child(
+                                div()
+                                    .text_size(px(9.))
+                                    .text_color(avatar_color)
+                                    .child(initial),
+                            ),
+                    )
+                    .child(
+                        Label::new(text.to_string())
+                            .size(LabelSize::Small)
+                            .color(Color::Muted),
+                    )
+                    // Agent adaptations carry a `rev {n}` provenance chip (G6).
+                    .when_some(entry.rev, |row, rev| {
+                        row.child(crate::mono_chip(format!("rev {rev}"), text_placeholder, cx))
+                    }),
+            )
+        });
+        v_flex()
+            .ml_4()
+            .max_w(px(600.))
+            .gap_1()
+            .p_2()
+            .rounded_lg()
+            .border_1()
+            .border_color(border_variant)
+            .bg(editor_background)
+            .child(header)
+            .children(messages)
     }
 }
 
