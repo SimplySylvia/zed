@@ -731,6 +731,144 @@ pub(crate) fn status_dot(status: &Status, color: Color, id: &'static str) -> Any
     }
 }
 
+// ── Display state (design-spec §9) ───────────────────────────────────────────
+
+/// The fine-grained lifecycle surface for a plan, derived from its contents — the
+/// single source for the status-bar pill's fragment/color (and the needs-you
+/// pulse). The coarse [`Status`] enum can't express sub-states like a failed task,
+/// staged revisions, open lint, or review comment/blocker counts; this can. See
+/// [`display_state`] for the derivation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum DisplayState {
+    Intake { questions: usize },
+    Drafting,
+    Lint { open: usize },
+    InReview { comments: usize, blockers: usize },
+    RevStaged,
+    Approved,
+    GuardHold,
+    Executing { done: usize, total: usize, acc_done: usize, acc_total: usize },
+    TaskFailed { task: String },
+    Gate { drift: bool },
+    Done { pr: Option<u64> },
+    Paused,
+    Abandoned,
+}
+
+/// Any ticket carries stamped drift (F2.4g) — decorates the GATE surface with a
+/// "+ drift" note so a mid-execution ticket change is visible at the pill.
+fn any_ticket_drift(plan: &Plan) -> bool {
+    plan.tickets
+        .iter()
+        .any(|ticket| plan_core::tickets::stamped_drift(ticket).is_some())
+}
+
+/// Derive the [`DisplayState`] from a plan's contents (design-spec §9 matrix).
+///
+/// Precedence (a runtime hold overrides the lifecycle status):
+/// 1. A GATE hold ([`exec::current_hold`] with `kind == "gate"`) → `Gate { drift }`,
+///    where `drift` is set if any ticket has stamped drift.
+/// 2. Any other hold (a holding step guard) → `GuardHold`.
+/// 3. Otherwise, by `plan.status`:
+///    - `Amending` → `TaskFailed { task }` — the first `Failed` task's id (falling
+///      back to the first task id, else `"task"`).
+///    - `Done` → `Done { pr }` — the recorded PR number from `plan.git.pr.number`.
+///    - `Executing` → `Executing { done, total, acc_done, acc_total }`.
+///    - `Paused` / `Abandoned` / `Approved` → the matching leaf.
+///    - `Gate` (without a live hold) → `Gate { drift }` (defensive; normally a
+///      GATE status coincides with a hold and is caught above).
+///    - `InReview` / `Revising`: a staged `pending_revision` → `RevStaged`; else
+///      count non-lint, non-resolved comments + open blockers → `InReview` when
+///      either is non-zero; else open lint findings → `Lint`; else empty `InReview`.
+///    - `Drafting`: open lint findings → `Lint`, else `Drafting`.
+///    - `Intake` → `Intake { questions }` — unanswered open questions.
+pub(crate) fn display_state(plan: &Plan) -> DisplayState {
+    if let Some(hold) = exec::current_hold(plan) {
+        if hold.kind == "gate" {
+            return DisplayState::Gate { drift: any_ticket_drift(plan) };
+        }
+        return DisplayState::GuardHold;
+    }
+    match plan.status {
+        Status::Amending => {
+            let task = plan
+                .tasks
+                .iter()
+                .find(|task| task.status == TaskStatus::Failed)
+                .or_else(|| plan.tasks.first())
+                .map(|task| task.id.clone())
+                .unwrap_or_else(|| "task".to_string());
+            DisplayState::TaskFailed { task }
+        }
+        Status::Done => {
+            let pr = plan
+                .git
+                .as_ref()
+                .and_then(|git| git.pr.as_ref())
+                .and_then(|pr| pr.get("number"))
+                .and_then(|number| number.as_u64());
+            DisplayState::Done { pr }
+        }
+        Status::Executing => DisplayState::Executing {
+            done: plan
+                .tasks
+                .iter()
+                .filter(|task| task.status == TaskStatus::Done)
+                .count(),
+            total: plan.tasks.len(),
+            acc_done: plan.spec.acceptance.iter().filter(|criterion| criterion.done).count(),
+            acc_total: plan.spec.acceptance.len(),
+        },
+        Status::Paused => DisplayState::Paused,
+        Status::Abandoned => DisplayState::Abandoned,
+        Status::Approved => DisplayState::Approved,
+        Status::Gate => DisplayState::Gate { drift: any_ticket_drift(plan) },
+        Status::InReview | Status::Revising => {
+            if plan.pending_revision.is_some() {
+                return DisplayState::RevStaged;
+            }
+            // `open_blocker_count` is author-agnostic, so a lint comment with blocker
+            // severity would count toward `blockers` and short-circuit the `Lint`
+            // branch below — acceptable because lint findings don't use blocker severity.
+            let blockers = plan_view::open_blocker_count(plan);
+            let comments = plan
+                .comments
+                .iter()
+                .filter(|comment| {
+                    comment.author.as_deref() != Some(plan_core::lint::LINT_AUTHOR)
+                        && comment.state.as_deref() != Some("resolved")
+                })
+                .count();
+            if comments > 0 || blockers > 0 {
+                DisplayState::InReview { comments, blockers }
+            } else {
+                let open = plan_view::open_lint_count(plan);
+                if open > 0 {
+                    DisplayState::Lint { open }
+                } else {
+                    DisplayState::InReview { comments: 0, blockers: 0 }
+                }
+            }
+        }
+        Status::Drafting => {
+            let open = plan_view::open_lint_count(plan);
+            if open > 0 {
+                DisplayState::Lint { open }
+            } else {
+                DisplayState::Drafting
+            }
+        }
+        Status::Intake => DisplayState::Intake {
+            questions: plan
+                .spec
+                .open_questions
+                .iter()
+                .filter(|question| question.answer.is_none())
+                .count(),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -774,5 +912,156 @@ mod tests {
             text,
             "agent synced rev 4 · 2026-07-11T09:00:00Z — rev 6 syncs before next task"
         );
+    }
+
+    fn plan(value: serde_json::Value) -> Plan {
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn display_state_derivation_table() {
+        // (seed plan, expected DisplayState) — the §9 state→surface matrix.
+        let base = |status: &str| {
+            serde_json::json!({
+                "schema_version": 1, "id": "X", "title": "t", "status": status,
+                "rev": 1, "thread": "a", "spec": { "goal": "g" }
+            })
+        };
+        let cases: Vec<(Plan, DisplayState)> = vec![
+            // Intake counts only unanswered open questions.
+            (
+                plan(serde_json::json!({
+                    "schema_version": 1, "id": "X", "title": "t", "status": "intake",
+                    "rev": 1, "thread": "a",
+                    "spec": { "goal": "g", "open_questions": [
+                        {"id": "q1"}, {"id": "q2", "answer": "yes"}, {"id": "q3"}
+                    ] }
+                })),
+                DisplayState::Intake { questions: 2 },
+            ),
+            (plan(base("drafting")), DisplayState::Drafting),
+            // Drafting + an open lint finding surfaces as Lint.
+            (
+                plan(serde_json::json!({
+                    "schema_version": 1, "id": "X", "title": "t", "status": "drafting",
+                    "rev": 1, "thread": "a", "spec": { "goal": "g" },
+                    "comments": [
+                        {"id": "lint-a-b", "author": "plan-lint", "state": "open"},
+                        {"id": "lint-c-d", "author": "plan-lint", "state": "resolved"}
+                    ]
+                })),
+                DisplayState::Lint { open: 1 },
+            ),
+            // Review with comments + a blocker.
+            (
+                plan(serde_json::json!({
+                    "schema_version": 1, "id": "X", "title": "t", "status": "in_review",
+                    "rev": 1, "thread": "a", "spec": { "goal": "g" },
+                    "comments": [
+                        {"id": "c1", "author": "user", "state": "open"},
+                        {"id": "c2", "author": "user", "severity": "blocker", "state": "open"},
+                        {"id": "l1", "author": "plan-lint", "state": "open"}
+                    ]
+                })),
+                DisplayState::InReview { comments: 2, blockers: 1 },
+            ),
+            // Review, no user comments, but open lint → Lint.
+            (
+                plan(serde_json::json!({
+                    "schema_version": 1, "id": "X", "title": "t", "status": "in_review",
+                    "rev": 1, "thread": "a", "spec": { "goal": "g" },
+                    "comments": [{"id": "l1", "author": "plan-lint", "state": "open"}]
+                })),
+                DisplayState::Lint { open: 1 },
+            ),
+            // Review, nothing open → empty InReview.
+            (plan(base("in_review")), DisplayState::InReview { comments: 0, blockers: 0 }),
+            // Revising with a staged revision → RevStaged.
+            (
+                plan(serde_json::json!({
+                    "schema_version": 1, "id": "X", "title": "t", "status": "revising",
+                    "rev": 3, "thread": "a", "spec": { "goal": "g" },
+                    "pending_revision": { "hunks": [] }
+                })),
+                DisplayState::RevStaged,
+            ),
+            (plan(base("approved")), DisplayState::Approved),
+            (
+                plan(serde_json::json!({
+                    "schema_version": 1, "id": "X", "title": "t", "status": "executing",
+                    "rev": 1, "thread": "a",
+                    "spec": { "goal": "g", "acceptance": [
+                        {"id": "a1", "done": true}, {"id": "a2", "done": false}
+                    ] },
+                    "tasks": [{"id": "t1", "status": "done"}, {"id": "t2", "status": "pending"}]
+                })),
+                DisplayState::Executing { done: 1, total: 2, acc_done: 1, acc_total: 2 },
+            ),
+            // Amending → TaskFailed with the first failed task's id.
+            (
+                plan(serde_json::json!({
+                    "schema_version": 1, "id": "X", "title": "t", "status": "amending",
+                    "rev": 1, "thread": "a", "spec": { "goal": "g" },
+                    "tasks": [
+                        {"id": "t1", "status": "done"},
+                        {"id": "t2", "status": "failed"}
+                    ]
+                })),
+                DisplayState::TaskFailed { task: "t2".to_string() },
+            ),
+            // Amending with no failed task falls back to the first task id.
+            (
+                plan(serde_json::json!({
+                    "schema_version": 1, "id": "X", "title": "t", "status": "amending",
+                    "rev": 1, "thread": "a", "spec": { "goal": "g" },
+                    "tasks": [{"id": "t1", "status": "done"}]
+                })),
+                DisplayState::TaskFailed { task: "t1".to_string() },
+            ),
+            // Done with a recorded PR number.
+            (
+                plan(serde_json::json!({
+                    "schema_version": 1, "id": "X", "title": "t", "status": "done",
+                    "rev": 1, "thread": "a", "spec": { "goal": "g" },
+                    "git": { "pr": { "number": 42, "url": "https://example/pr/42" } }
+                })),
+                DisplayState::Done { pr: Some(42) },
+            ),
+            (plan(base("done")), DisplayState::Done { pr: None }),
+            (plan(base("paused")), DisplayState::Paused),
+            (plan(base("abandoned")), DisplayState::Abandoned),
+        ];
+        for (plan, expected) in cases {
+            assert_eq!(display_state(&plan), expected, "plan {} status {:?}", plan.id, plan.status);
+        }
+    }
+
+    #[test]
+    fn display_state_gate_hold_overrides_status_and_reads_drift() {
+        // A holding GATE task wins over the coarse status, and stamped ticket drift
+        // decorates it.
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "executing",
+            "rev": 1, "thread": "a", "spec": { "goal": "g" },
+            "tickets": [{
+                "source": "jira", "key": "LED-1",
+                "drift": { "status_changed": true, "ac_changed": false, "fields_changed": ["status"] }
+            }],
+            "tasks": [{"id": "g1", "gate": true, "status": "in_progress"}]
+        }));
+        assert_eq!(display_state(&plan), DisplayState::Gate { drift: true });
+    }
+
+    #[test]
+    fn display_state_guard_hold_overrides_status() {
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "executing",
+            "rev": 1, "thread": "a", "spec": { "goal": "g" },
+            "tasks": [{
+                "id": "t1", "status": "in_progress",
+                "steps": [{"id": "s1", "guard": {"type": "approve", "state": "holding"}}]
+            }]
+        }));
+        assert_eq!(display_state(&plan), DisplayState::GuardHold);
     }
 }

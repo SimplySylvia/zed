@@ -3,13 +3,13 @@
 
 use agent_ui::{AgentPanel, AgentPanelEvent};
 use gpui::{App, Context, Render, Subscription, WeakEntity, Window};
-use plan_core::{Plan, Status, TaskStatus};
+use plan_core::Plan;
 use ui::prelude::*;
 use workspace::dock::Panel;
 use workspace::{HideStatusItem, ItemHandle, StatusItemView, Workspace};
 
-use crate::PlanPanel;
 use crate::following::PlanFollower;
+use crate::{DisplayState, PlanPanel};
 
 pub struct PlanPill {
     follower: PlanFollower,
@@ -73,8 +73,12 @@ fn plan_panel_showing(workspace: &Workspace, window: &Window, cx: &App) -> bool 
 impl Render for PlanPill {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = self.follower.plan().map(|plan| {
-            let needs_you =
-                plan_core::exec::current_hold(plan).is_some() || plan.status == Status::Gate;
+            // Only a hold (GATE / guard) is a "needs you now" pulse at the pill —
+            // unlike the status dots, which also pulse for drafting/executing (G4).
+            let needs_you = matches!(
+                crate::display_state(plan),
+                DisplayState::Gate { .. } | DisplayState::GuardHold
+            );
             (pill_fragment(plan), needs_you)
         });
         // Selected/active state: a solid fill while the panel is open (like the other
@@ -143,44 +147,52 @@ impl StatusItemView for PlanPill {
     }
 }
 
-/// The pill fragment + color for a plan's lifecycle state (design-spec §9). A guard
-/// or GATE hold is a needs-you state that overrides the lifecycle fragment.
+/// The pill fragment + color for a plan's lifecycle surface (design-spec §9 matrix),
+/// derived from [`crate::display_state`] so the pill reflects sub-states the coarse
+/// `Status` can't (a failed task reads red, staged revs / lint / review counts, etc.).
 pub(crate) fn pill_fragment(plan: &Plan) -> (String, Color) {
-    if let Some(hold) = plan_core::exec::current_hold(plan) {
-        let text = if hold.kind == "gate" {
-            "GATE — needs you"
-        } else {
-            "guarded step — needs you"
-        };
-        return (text.to_string(), Color::Warning);
-    }
-    match plan.status {
-        Status::Executing => {
-            let done = plan
-                .tasks
-                .iter()
-                .filter(|task| task.status == TaskStatus::Done)
-                .count();
-            let acc_done = plan.spec.acceptance.iter().filter(|a| a.done).count();
-            (
-                format!(
-                    "{done}/{} · acc {acc_done}/{}",
-                    plan.tasks.len(),
-                    plan.spec.acceptance.len()
-                ),
-                Color::Info,
-            )
+    match crate::display_state(plan) {
+        DisplayState::Intake { questions } => {
+            // No open questions is the matrix's intake-answered row (drafting next),
+            // not a needs-you state.
+            if questions == 0 {
+                ("intake ✓ — drafting".into(), Color::Muted)
+            } else {
+                (format!("{questions} questions — need you"), Color::Warning)
+            }
         }
-        Status::Intake => ("intake — need you".into(), Color::Warning),
-        Status::Drafting => ("drafting…".into(), Color::Muted),
-        Status::InReview => ("in review".into(), Color::Warning),
-        Status::Revising => ("revising".into(), Color::Warning),
-        Status::Approved => ("approved — launch?".into(), Color::Created),
-        Status::Paused => ("paused".into(), Color::Muted),
-        Status::Gate => ("gate — needs you".into(), Color::Warning),
-        Status::Amending => ("amending".into(), Color::Warning),
-        Status::Done => ("done ✓".into(), Color::Created),
-        Status::Abandoned => ("abandoned".into(), Color::Muted),
+        DisplayState::Drafting => ("drafting…".into(), Color::Muted),
+        DisplayState::Lint { open } => (format!("lint {open} open"), Color::Warning),
+        DisplayState::InReview { comments, blockers } => {
+            let text = if blockers > 0 {
+                format!("review · {comments}💬 ⚑")
+            } else {
+                format!("review · {comments}💬")
+            };
+            (text, Color::Warning)
+        }
+        DisplayState::RevStaged => (format!("rev {} staged", plan.rev), Color::Warning),
+        DisplayState::Approved => ("approved — launch?".into(), Color::Created),
+        DisplayState::GuardHold => ("guarded step — needs you".into(), Color::Warning),
+        DisplayState::Executing { done, total, acc_done, acc_total } => {
+            (format!("{done}/{total} · acc {acc_done}/{acc_total}"), Color::Info)
+        }
+        // The failed-task row (design-spec §9) — red, and it's the one the coarse
+        // `Amending` status couldn't express before.
+        DisplayState::TaskFailed { task } => (format!("{task} failed — needs you"), Color::Error),
+        DisplayState::Gate { drift } => {
+            let text = if drift { "GATE + drift — needs you" } else { "GATE — needs you" };
+            (text.into(), Color::Warning)
+        }
+        DisplayState::Done { pr } => {
+            let text = match pr {
+                Some(number) => format!("done ✓ · PR #{number}"),
+                None => "done ✓".to_string(),
+            };
+            (text, Color::Created)
+        }
+        DisplayState::Paused => ("paused".into(), Color::Muted),
+        DisplayState::Abandoned => ("abandoned".into(), Color::Muted),
     }
 }
 
@@ -210,5 +222,46 @@ mod tests {
             "thread": "a", "spec": { "goal": "g" }
         }));
         assert_eq!(pill_fragment(&plan).0, "drafting…");
+    }
+
+    #[test]
+    fn task_failed_fragment_is_red() {
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "amending", "rev": 1,
+            "thread": "a", "spec": { "goal": "g" },
+            "tasks": [{"id": "t1", "status": "done"}, {"id": "t2", "status": "failed"}]
+        }));
+        assert_eq!(pill_fragment(&plan), ("t2 failed — needs you".to_string(), Color::Error));
+    }
+
+    #[test]
+    fn done_fragment_shows_pr_number() {
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "done", "rev": 1,
+            "thread": "a", "spec": { "goal": "g" },
+            "git": { "pr": { "number": 42, "url": "https://example/pr/42" } }
+        }));
+        assert_eq!(pill_fragment(&plan), ("done ✓ · PR #42".to_string(), Color::Created));
+    }
+
+    #[test]
+    fn done_fragment_without_pr() {
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "done", "rev": 1,
+            "thread": "a", "spec": { "goal": "g" }
+        }));
+        assert_eq!(pill_fragment(&plan).0, "done ✓");
+    }
+
+    #[test]
+    fn gate_without_drift_fragment() {
+        // A gate hold with no ticket drift → GATE, no "+ drift", amber.
+        let plan = plan(serde_json::json!({
+            "schema_version": 1, "id": "X", "title": "t", "status": "gate", "rev": 1,
+            "thread": "a", "spec": { "goal": "g" },
+            "tasks": [{"id": "g1", "gate": true, "status": "in_progress"}]
+        }));
+        assert_eq!(crate::display_state(&plan), DisplayState::Gate { drift: false });
+        assert_eq!(pill_fragment(&plan), ("GATE — needs you".to_string(), Color::Warning));
     }
 }

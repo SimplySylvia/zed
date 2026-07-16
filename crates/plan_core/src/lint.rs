@@ -14,7 +14,7 @@ use crate::Plan;
 use crate::schema::{Anchor, Comment, HistoryEntry, ThreadEntry};
 
 /// The author stamped on lint-generated comments (F9.1).
-const LINT_AUTHOR: &str = "plan-lint";
+pub const LINT_AUTHOR: &str = "plan-lint";
 
 /// A rule's configured severity. `Off` disables the rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

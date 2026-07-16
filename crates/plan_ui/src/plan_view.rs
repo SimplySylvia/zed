@@ -1671,11 +1671,23 @@ fn comment_state_color(state: &str) -> Color {
 
 /// Comments that gate Approve (F3.6): blocker-severity and not yet resolved
 /// (F3.4d — resolution belongs to the user).
-fn open_blocker_count(plan: &Plan) -> usize {
+pub(crate) fn open_blocker_count(plan: &Plan) -> usize {
     plan.comments
         .iter()
         .filter(|comment| {
             comment.severity.as_deref() == Some("blocker")
+                && comment.state.as_deref() != Some("resolved")
+        })
+        .count()
+}
+
+/// Open policy-lint findings (§9): `plan-lint`-authored comments not yet resolved.
+/// Drives the pill's `Lint` fragment when there are no user/agent review comments.
+pub(crate) fn open_lint_count(plan: &Plan) -> usize {
+    plan.comments
+        .iter()
+        .filter(|comment| {
+            comment.author.as_deref() == Some(plan_core::lint::LINT_AUTHOR)
                 && comment.state.as_deref() != Some("resolved")
         })
         .count()
