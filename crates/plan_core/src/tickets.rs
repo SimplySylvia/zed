@@ -3,6 +3,8 @@
 //! `spec.acceptance`. Coverage = every ticket AC maps to a plan criterion; drift =
 //! a fresh fetch differs from the stored snapshot.
 
+use serde::{Deserialize, Serialize};
+
 use crate::Plan;
 use crate::lint::Severity;
 use crate::schema::Ticket;
@@ -73,14 +75,28 @@ pub fn uncovered_ticket_acs(plan: &Plan) -> Vec<TicketAcCoverage> {
         .collect()
 }
 
+/// One changed ticket AC (drift card old→new, §4): `from = None` is an addition,
+/// `to = None` a removal, both `Some` an edit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AcChange {
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
 /// What changed between a stored ticket and a fresh fetch (F2.4g). `None` when
-/// nothing did. `ac_changed` is the flag that must re-run coverage; a status/scope
-/// change is what M8b turns into a drift card / staged revision.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// nothing did. Carries old→new so the M8b drift card can render struck→new lines;
+/// serialized onto `ticket.drift`. `ac_changed` is the flag that re-runs coverage.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TicketDrift {
     pub status_changed: bool,
     pub ac_changed: bool,
     pub fields_changed: Vec<String>,
+    #[serde(default)]
+    pub status_from: Option<String>,
+    #[serde(default)]
+    pub status_to: Option<String>,
+    #[serde(default)]
+    pub ac_changes: Vec<AcChange>,
 }
 
 pub fn ticket_drift(stored: &Ticket, fresh: &Ticket) -> Option<TicketDrift> {
@@ -101,11 +117,37 @@ pub fn ticket_drift(stored: &Ticket, fresh: &Ticket) -> Option<TicketDrift> {
     if fields_changed.is_empty() {
         return None;
     }
+    // Positional old→new over the AC lists (edits, additions, removals).
+    let mut ac_changes = Vec::new();
+    let max = stored.ac.len().max(fresh.ac.len());
+    for index in 0..max {
+        let old = stored.ac.get(index);
+        let new = fresh.ac.get(index);
+        if old != new {
+            ac_changes.push(AcChange {
+                from: old.cloned(),
+                to: new.cloned(),
+            });
+        }
+    }
+    let status_changed = fields_changed.iter().any(|field| field == "status");
     Some(TicketDrift {
-        status_changed: fields_changed.iter().any(|field| field == "status"),
+        status_changed,
         ac_changed,
         fields_changed,
+        status_from: status_changed.then(|| stored.status.clone()).flatten(),
+        status_to: status_changed.then(|| fresh.status.clone()).flatten(),
+        ac_changes,
     })
+}
+
+/// Parse a `ticket.drift` payload back into a [`TicketDrift`] (the UI reads this to
+/// render the drift card — keeps `serde_json` out of `plan_ui`).
+pub fn stamped_drift(ticket: &Ticket) -> Option<TicketDrift> {
+    ticket
+        .drift
+        .as_ref()
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
 }
 
 /// Uncovered ticket ACs block Done (F2.4f) when the rule is a blocker. A descope is

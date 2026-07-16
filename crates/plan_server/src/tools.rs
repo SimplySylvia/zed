@@ -500,13 +500,9 @@ pub fn resync_ticket(
             .ok_or_else(|| anyhow::anyhow!("no ticket {key}"))?;
         let drift = tickets::ticket_drift(stored, &fresh);
         *stored = fresh;
-        stored.drift = drift.map(|drift| {
-            serde_json::json!({
-                "status_changed": drift.status_changed,
-                "ac_changed": drift.ac_changed,
-                "fields_changed": drift.fields_changed,
-            })
-        });
+        stored.drift = drift
+            .map(|drift| serde_json::to_value(drift))
+            .transpose()?;
         Ok(())
     })
 }

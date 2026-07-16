@@ -98,6 +98,25 @@ fn ticket_drift_detects_status_and_ac_changes() {
 }
 
 #[test]
+fn ticket_drift_carries_old_to_new_for_the_card() {
+    let stored = ticket(serde_json::json!({
+        "source": "jira", "key": "LED-1", "status": "To Do", "ac": ["one", "two"]
+    }));
+    let fresh = ticket(serde_json::json!({
+        "source": "jira", "key": "LED-1", "status": "In Progress", "ac": ["one", "TWO", "three"]
+    }));
+    let drift = tickets::ticket_drift(&stored, &fresh).expect("drift");
+    assert_eq!(drift.status_from.as_deref(), Some("To Do"));
+    assert_eq!(drift.status_to.as_deref(), Some("In Progress"));
+    // position 2 changed (two→TWO), position 3 added (—→three).
+    assert_eq!(drift.ac_changes.len(), 2);
+    assert_eq!(drift.ac_changes[0].from.as_deref(), Some("two"));
+    assert_eq!(drift.ac_changes[0].to.as_deref(), Some("TWO"));
+    assert_eq!(drift.ac_changes[1].from, None);
+    assert_eq!(drift.ac_changes[1].to.as_deref(), Some("three"));
+}
+
+#[test]
 fn coverage_blocks_done_unless_covered_or_disabled() {
     let uncovered = plan(serde_json::json!({
         "schema_version": 1, "id": "P", "title": "t", "status": "executing", "rev": 1,
