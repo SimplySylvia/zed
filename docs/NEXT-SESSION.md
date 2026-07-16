@@ -3,9 +3,9 @@
 **How to use:** point a fresh agent at this file (or paste the brief below). It's the kickoff
 for continuing the **Plan** feature. Kept current at the end of each session.
 
-_Last updated: after M8 (2026-07-15) — tickets complete (8a store/coverage/lint · 8b cards +
-coverage meter + drift UI). On branch `plan`. **M9 (settings + hardening) is the last MVP
-milestone.**_
+_Last updated: after M9 (2026-07-15) — **MVP COMPLETE.** All of M0–M9 done + visually verified.
+Settings key + page (9a/9b) + §12 hardening (9c). On branch `plan`. Next is the **v1 tail** (no MVP
+milestones remain)._
 
 ---
 
@@ -21,16 +21,18 @@ page)); then the milestone notes `docs/milestones/M0.md … M8b.md`; then
 settings registration: the `"plan"` key + settings page touch ~3 UPSTREAM files, not purely
 additive**). Confirm you've read Part III + the milestone notes before proposing anything.
 
-**Current section: M9 (Settings + hardening) is next — the LAST MVP milestone. Start by writing
-the M9 plan for sign-off; no code until approved.** Note M9 is the one place the fork touches
-upstream beyond registration lines (study #8) — flag the conflict surface. Never add a
+**Current state: the MVP is COMPLETE (M0–M9, all §13-verified).** There is no next MVP milestone.
+The next work is the **v1 tail** (see "Next up") — pick an item, write a plan for sign-off, execute.
+Or the branch is ready for a **PR to `main`** when the developer wants one. Never add a
 `Co-Authored-By` trailer to commits (see the Working agreement).
 
 ### Status
 M0–M4, **all of M5 (5a comments · 5b staged revisions · 5c lint)**, **all of M6 (6a launch ·
 6b gates/guards · 6c amendments/failure-ladder/control)**, **all of M7 (7a git core +
-enforcement · 7b branch strip + commit rail)**, and **all of M8 (8a ticket store/coverage/lint ·
-8b ticket cards + coverage meter + drift UI)** are **complete and visually verified**. A broad
+enforcement · 7b branch strip + commit rail)**, **all of M8 (8a ticket store/coverage/lint ·
+8b ticket cards + coverage meter + drift UI)**, and **all of M9 (9a `"plan"` settings key +
+consumption · 9b settings page + responsive/cycle panel · 9c `.bak` recovery + §12 drills)** are
+**complete and visually verified** — **the MVP feature set is done (M0–M9)**. A broad
 `plan_ui` **demo-fidelity pass** is in too (card chassis, sechead + WHEN/SHALL acceptance +
 preview blocks, task-card checkbox/spinner + chip placement + per-task timeline, continuous
 commit rail, panel borders + contextual actions, pill states, first-launch fix). Crates:
@@ -50,7 +52,8 @@ commit rail, panel borders + contextual actions, pill states, first-launch fix).
 - `plan_ui` — Plan tab (lenses, cards, task cards w/ commit rail + timeline, review UI, launch +
   guards + amendments + escalation + recovery + pause/resume/stop, **branch strip + commit rail
   from live `git_store` + GitHub PR button**, **ticket header chip + Spec-lens ticket cards +
-  coverage meter + drift card**) + status pill + dock panel.
+  coverage meter + drift card**) + status pill + dock panel (**responsive stack + cycle button**);
+  **`plan_settings`** (the `"plan"` key: enable/dock/auto_open/default_lens/revisions).
 - `plan-agent/` — planning skill (lifecycle + per-task loop + enforcement + **branch/commit git
   protocol**) + hooks + settings.
 
@@ -72,22 +75,20 @@ docs are silent/contradictory. All `plan_ui` work is governed by the `plan-ui-de
 `docs/design/plan-ui-compliance.md` (run its §13 protocol per component). Stay in MVP scope
 (PRD §14); flag v1 pulls instead of building them.
 
-### Next up
-M5–M8 are done. **Last MVP section:**
-- **M9 — Settings + hardening.** The `"plan"` settings key + settings-page section (F12.1/F12.2c)
-  with presets (Careful/Balanced/Fast), policy.json severity wiring, and the **§12 failure drills**
-  (kill the server mid-write · kill Zed mid-execution · corrupt the file · edit plan.json
-  externally — each must land in a designed state, not a surprise). **Fork caveat (zed-notes study
-  #8):** the settings key + page touch **~3 upstream files** (`settings_content`, `assets/settings/
-  default.json`, `settings_ui/page_data.rs`) — the one non-additive milestone; flag + track the
-  conflict surface in FORK_DIFF. Interim fallback exists (raw-JSON settings work today), so the
-  structured page can degrade/defer if needed.
-- After M9, **MVP is complete**; then the v1 tail (peek cards → rehearsal → live evidence + diff
-  view → PR generation → worktree isolation → attention queue → …).
+### Next up — the v1 tail (MVP is done)
+No MVP milestones remain. The **v1 tail**, in rough order of likely appetite (PRD Part II §4 +
+§14 v1 tier): **peek cards** (F0.5b) → **rehearsal** (F9.4) → **live evidence + acceptance
+auto-check** incl. the **diff-view-in-task-card** the developer asked about (F4.6d — `load_commit`
++ `create_editor_diff` are ready) → **PR generation** + live PR chip (F10.4) → **worktree
+isolation** (F10.2b) → **attention queue** (F5.7) → **code-anchored feedback** (F9.2) →
+**write-back** (F2.4e) → **Plans browser** (F1.6). Then v1.5 distillation, v2+ stacked PRs/blame.
 
-**Start by writing the M9 plan for the user's sign-off — no code until approved.** M9 likely splits
-(settings key + `from_settings` wiring · settings-page section + presets · §12 hardening drills).
-The settings-page slice is where the upstream touch lands — call it out.
+Also carry the **near-term deferrals** each milestone recorded (settings **presets** F12.4;
+**lease enforcement** F11.3b; agent-routed **revert** + manual **resync**; **merge-conflict card**
+F11.5b; the fidelity backlog).
+
+**Pick an item, write a plan for sign-off (`docs/milestones/…`), execute task-by-task.** Or open a
+**PR of `plan` → `main`** when the developer wants to land the MVP.
 
 ### M8 deferrals to honor (recorded in M8a/M8b notes)
 - **Write-back (F2.4e) is v1** — Launch→In Progress, Done→summary+PR comment, Abandon→reason.

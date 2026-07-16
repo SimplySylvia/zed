@@ -1,7 +1,17 @@
 # M9b · Settings — the settings-page section — milestone note
 
-**Status:** code COMPLETE; **§13 visual verification awaiting the developer** (One Dark, covers the
-M9a behaviors too). `settings_ui` (56 tests) + full `zed` build green.
+**Status:** COMPLETE — **§13 visual verification confirmed by the developer (2026-07-15)** under
+One Dark: the Plan settings page (5 controls) + the M9a behaviors (dock/lens/auto-open/enable/
+revisions) all verified. `settings_ui` (56 tests) + full `zed` build green. **With M9, all of
+M0–M9 is complete — the MVP feature set is done.**
+
+### §13 fixes (found + fixed during this check)
+- **Dock-change panic** — persisting `set_position` re-homed the panel and hit the dock's global
+  activation-priority uniqueness check; `PlanPanel`'s priority collided with `OutlinePanel` (both
+  6, latent since M0). Fixed → unique `100` (see M9a note).
+- **Responsive panel body** — pipeline + live now **stack vertically** when docked left/right
+  (narrow), side-by-side when docked bottom (compliance §10 updated).
+- **Dock-cycle button** — a `⇄` header button cycles Left → Bottom → Right (persists).
 
 **Feature IDs:** F12.2c (settings page section).
 
@@ -42,7 +52,7 @@ tracked in FORK_DIFF. Mirrors the Git Panel page rows exactly.
 ## Definition of done
 - [x] A "Plan" settings page with the 5 personal-key controls (toggles + dropdowns).
 - [x] `settings_ui` tests + full `zed` build green; FORK_DIFF updated (page_data.rs).
-- [ ] **§13 visual verification under One Dark — developer gate (pending).**
+- [x] **§13 visual verification under One Dark — confirmed by the developer (2026-07-15).**
 - [~] Presets — **deferred** (flagged; keys are individually settable).
 
 ## Next: M9c — §12 hardening drills → then MVP is complete (pending this §13).

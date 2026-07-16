@@ -4,8 +4,9 @@
 > superpowers:test-driven-development (the `from_settings` mapping + any `plan_core` hardening are
 > test-first); the `plan-ui-design` skill contract if/when the settings-page UI (M9b) is built.
 
-**Status:** awaiting sign-off (not started). **M9 is the last MVP milestone**, and the one place the
-fork touches upstream beyond registration lines — read the fork caveat + open question 1 first.
+**Status:** COMPLETE — M9a/M9b/M9c all done; **§13 confirmed by the developer (2026-07-15)**.
+**M9 was the last MVP milestone — MVP is now complete.** Presets (F12.4) deferred; the settings
+key/page were the accepted upstream touch (FORK_DIFF).
 
 ## M9 is split — this plan is slice **a** of three
 - **M9a (this) — the `"plan"` settings key + consumption.** Add `PlanSettingsContent` to upstream
