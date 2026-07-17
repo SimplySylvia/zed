@@ -3,7 +3,18 @@
 **How to use:** point a fresh agent at this file (or paste the brief below). It's the kickoff
 for continuing the **Plan** feature. Kept current at the end of each session.
 
-_Last updated: after **fidelity-pass-2** (2026-07-16) — MVP (M0–M9) complete, and now a full
+_Last updated: after **v1-bundle-1** (2026-07-16) — MVP (M0–M9) + both fidelity passes complete,
+and now the **first v1-tail bundle** is done + §13-verified: **F4.6d** diff-view (sha-chip click →
+read-only commit diff as a workspace tab via `git_ui::CommitView::open`) + acceptance evidence chips
+/ stale tint / running count; **F0.5b** hover-peek cards (ticket/anchor/hunk chips via
+`hoverable_tooltip`, resolving through `anchor::block_text`); **F5.7** a rendered "NEEDS YOU"
+attention-queue panel section (active-plan; `attention_items` enumeration + coarse jump-to-lens).
+Additive `plan_ui` + `plan_core` `block_text`/`Lens` pub + one fork-local dep (`git_ui`) — **no
+upstream files.** Record + deferrals: `docs/milestones/v1-bundle-1.md` (+ `-plan`). Remaining v1 tail:
+rehearsal (F9.4), PR generation (F10.4), worktree isolation (F10.2b), code-anchored feedback (F9.2),
+write-back (F2.4e), Plans browser (F1.6); plus this bundle's deferrals (inline diff mini-buffer,
+peek ⌥/Esc/click-jump, cross-plan attention). The `plan → main` PR is still drafted/ready. Older
+context below is retained. ——— PRIOR: after **fidelity-pass-2** — a full
 **plan_ui polish pass toward the mockup** is done + §13-verified: P1 chassis/tokens (filled-pill
 chips, solid-accent CTA, segmented lens switcher w/ lighter active fill, framed branch strip,
 coverage segments, continuous commit-rail spine), P2 render-existing-data (sha diffstat, tests
