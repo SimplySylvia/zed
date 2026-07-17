@@ -77,7 +77,6 @@ fn register(workspace: &mut Workspace) {
 pub struct PlanPanel {
     focus_handle: FocusHandle,
     follower: PlanFollower,
-    #[allow(dead_code)]
     workspace: WeakEntity<Workspace>,
     activity: Vec<ActivityRow>,
     _agent_subscription: Option<Subscription>,
@@ -740,20 +739,24 @@ fn panel_activity(rows: &[ActivityRow], cx: &App) -> impl IntoElement {
 }
 
 
-/// The panel header sync receipt (§10, F5.3b). Returns the receipt text and whether the
-/// agent is a rev behind — when the latest agent-authored revision trails the plan's
-/// current rev the caller renders the amber "syncs before next task" variant.
-fn sync_receipt(plan: &Plan) -> (String, bool) {
-    let at = plan.history.iter().rev().find_map(|entry| entry.at.clone());
-    // The rev the executing agent last synced to: its most recent revision entry.
-    let agent_rev = plan
-        .history
+/// The rev the executing agent last synced to — its most recent revision history
+/// entry. Shared by the sync receipt and the attention queue (avoids re-scanning).
+fn agent_synced_rev(plan: &Plan) -> Option<u32> {
+    plan.history
         .iter()
         .rev()
         .find(|entry| {
             entry.by.as_deref() == Some("agent") && entry.kind.as_deref() == Some("revision")
         })
-        .and_then(|entry| entry.rev);
+        .and_then(|entry| entry.rev)
+}
+
+/// The panel header sync receipt (§10, F5.3b). Returns the receipt text and whether the
+/// agent is a rev behind — when the latest agent-authored revision trails the plan's
+/// current rev the caller renders the amber "syncs before next task" variant.
+fn sync_receipt(plan: &Plan) -> (String, bool) {
+    let at = plan.history.iter().rev().find_map(|entry| entry.at.clone());
+    let agent_rev = agent_synced_rev(plan);
     let behind = agent_rev.is_some_and(|rev| rev < plan.rev);
     let synced_rev = if behind {
         agent_rev.unwrap_or(plan.rev)
@@ -1231,9 +1234,8 @@ pub(crate) fn attention_items(plan: &Plan) -> Vec<AttentionItem> {
         });
     }
 
-    // 8. The executing agent trails the plan's current rev (`sync_receipt`'s signal).
-    let (_, behind) = sync_receipt(plan);
-    if behind {
+    // 8. The executing agent trails the plan's current rev.
+    if agent_synced_rev(plan).is_some_and(|rev| rev < plan.rev) {
         items.push(AttentionItem {
             kind: AttentionKind::RevBehind,
             label: "agent a rev behind".into(),

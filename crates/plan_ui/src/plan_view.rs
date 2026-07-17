@@ -54,7 +54,6 @@ pub enum PlanViewEvent {}
 
 pub struct PlanView {
     focus_handle: FocusHandle,
-    #[allow(dead_code)]
     workspace: WeakEntity<Workspace>,
     plans_dir: PathBuf,
     /// ACP session id of the followed thread (matches `plan.thread`); read by
