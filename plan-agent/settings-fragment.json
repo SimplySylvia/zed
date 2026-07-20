@@ -1,0 +1,29 @@
+{
+  "_comment": "Reference wiring for the plan-server + hooks in Claude Code. Replace <PLAN_SERVER_BIN> with an absolute path to the built binary (target/debug/plan_server or target/release/plan_server). See plan-agent/README.md for where each block goes: mcpServers -> .mcp.json (or `claude mcp add`); hooks -> .claude/settings.json.",
+  "mcpServers": {
+    "plan": {
+      "command": "<PLAN_SERVER_BIN>",
+      "args": []
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "<PLAN_SERVER_BIN> hook SessionStart" }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "<PLAN_SERVER_BIN> hook UserPromptSubmit" }] }
+    ],
+    "PreCompact": [
+      { "hooks": [{ "type": "command", "command": "<PLAN_SERVER_BIN> hook PreCompact" }] }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [{ "type": "command", "command": "<PLAN_SERVER_BIN> hook PreToolUse" }]
+      }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "<PLAN_SERVER_BIN> hook Stop" }] }
+    ]
+  }
+}

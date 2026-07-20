@@ -631,6 +631,9 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
         let git_blame_status = cx.new(|_| git_ui::GitBlameStatus::default());
         let merge_conflict_indicator =
             cx.new(|cx| git_ui::MergeConflictIndicator::new(workspace, cx));
+        // Plan (fork feature) — status-bar pill, only when the feature is enabled.
+        let plan_pill = plan_ui::plan_enabled(cx)
+            .then(|| cx.new(|cx| plan_ui::plan_pill::PlanPill::new(workspace, cx)));
         workspace.status_bar().update(cx, |status_bar, cx| {
             status_bar.add_left_item(search_button, window, cx);
             status_bar.add_left_item(lsp_button, window, cx);
@@ -639,6 +642,9 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
             status_bar.add_left_item(git_blame_status, window, cx);
             status_bar.add_left_item(merge_conflict_indicator, window, cx);
             status_bar.add_left_item(activity_indicator, window, cx);
+            if let Some(plan_pill) = plan_pill {
+                status_bar.add_left_item(plan_pill, window, cx);
+            }
             status_bar.add_right_item(edit_prediction_ui, window, cx);
             status_bar.add_right_item(active_buffer_encoding, window, cx);
             status_bar.add_right_item(active_buffer_language, window, cx);
@@ -804,6 +810,28 @@ fn initialize_panels(window: &mut Window, cx: &mut Context<Workspace>) -> Task<a
             add_panel_when_ready(git_panel, workspace_handle.clone(), cx.clone()),
             add_panel_when_ready(channels_panel, workspace_handle.clone(), cx.clone()),
             add_panel_when_ready(debug_panel, workspace_handle.clone(), cx.clone()),
+            {
+                // Plan (fork feature) — registered only behind the ZED_PLAN flag so
+                // an unflagged build is byte-for-byte upstream behaviour. See
+                // FORK_DIFF.md and docs/milestones/M0-plan.md. Owned clones are bound
+                // here so the `async move` doesn't borrow the outer handles (which are
+                // moved into `initialize_agent_panel` below).
+                let workspace_handle = workspace_handle.clone();
+                let mut cx = cx.clone();
+                async move {
+                    let enabled = cx
+                        .update(|_, cx| plan_ui::plan_enabled(cx))
+                        .unwrap_or(false);
+                    if enabled {
+                        add_panel_when_ready(
+                            plan_ui::PlanPanel::load(workspace_handle.clone(), cx.clone()),
+                            workspace_handle,
+                            cx,
+                        )
+                        .await;
+                    }
+                }
+            },
             initialize_agent_panel(workspace_handle, cx.clone()).map(|r| r.log_err()),
         );
 

@@ -78,8 +78,90 @@ pub(crate) fn settings_data(cx: &App) -> Vec<SettingsPage> {
         collaboration_page(),
         ai_page(cx),
         network_page(),
+        plan_page(),
         developer_page(cx),
     ]
+}
+
+/// The "Plan" feature settings (fork addition, PRD F12.2c) — the personal keys
+/// that drive the Plan surface (the per-work contract lives in `.plans/policy.json`).
+fn plan_page() -> SettingsPage {
+    SettingsPage {
+        title: "Plan",
+        items: Box::new([
+            SettingsPageItem::SectionHeader("Plan"),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Enable Plan",
+                description: "Enable the Plan feature (the ZED_PLAN env var also enables it). Takes effect on the next launch.",
+                field: Box::new(SettingField {
+                    organization_override: None,
+                    json_path: Some("plan.enabled"),
+                    pick: |settings_content| settings_content.plan.as_ref()?.enabled.as_ref(),
+                    write: |settings_content, value, _| {
+                        settings_content.plan.get_or_insert_default().enabled = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Plan Panel Dock",
+                description: "Where to dock the Plan panel.",
+                field: Box::new(SettingField {
+                    organization_override: None,
+                    json_path: Some("plan.dock"),
+                    pick: |settings_content| settings_content.plan.as_ref()?.dock.as_ref(),
+                    write: |settings_content, value, _| {
+                        settings_content.plan.get_or_insert_default().dock = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Open Plan Panel on Startup",
+                description: "Whether the Plan panel opens automatically on startup.",
+                field: Box::new(SettingField {
+                    organization_override: None,
+                    json_path: Some("plan.auto_open"),
+                    pick: |settings_content| settings_content.plan.as_ref()?.auto_open.as_ref(),
+                    write: |settings_content, value, _| {
+                        settings_content.plan.get_or_insert_default().auto_open = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Default Lens",
+                description: "The lens shown by default in the Plan tab ('auto' follows the plan's status).",
+                field: Box::new(SettingField {
+                    organization_override: None,
+                    json_path: Some("plan.default_lens"),
+                    pick: |settings_content| settings_content.plan.as_ref()?.default_lens.as_ref(),
+                    write: |settings_content, value, _| {
+                        settings_content.plan.get_or_insert_default().default_lens = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Revisions",
+                description: "How agent-proposed plan revisions land: staged (per-hunk apply/reject) or auto-applied.",
+                field: Box::new(SettingField {
+                    organization_override: None,
+                    json_path: Some("plan.revisions"),
+                    pick: |settings_content| settings_content.plan.as_ref()?.revisions.as_ref(),
+                    write: |settings_content, value, _| {
+                        settings_content.plan.get_or_insert_default().revisions = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+        ]),
+    }
 }
 
 fn developer_page(cx: &App) -> SettingsPage {
